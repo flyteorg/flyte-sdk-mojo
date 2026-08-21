@@ -1,7 +1,15 @@
-"""Hello — the minimal Flyte 2 task in Mojo (hello.mojo).
+"""Hello — the minimal Flyte task in Mojo.
 
-Run:
+One file. Where it runs is a property of the config, not of this code:
+
     mojo run hello.mojo
+
+    no ~/.flyte/config.yaml   the task runs in-process
+    a cluster config          this file is compiled for linux/amd64 and the
+                              task runs natively inside a Flyte action
+
+Force in-process execution against a cluster config with
+``init_from_config(mode="local")``.
 """
 from flyte import *
 
@@ -13,15 +21,12 @@ def _hello(name: String) -> String:
 comptime env = TaskEnvironment["demo"]()
 comptime hello = env.task[f=_hello, name="hello"]()
 
-def main() raises:
-    # direct call
-    var msg = hello("flyte2")
-    print(msg)
 
-    # run as a Flyte run (local mode) and inspect the trace
-    var run = run[f=hello, name="demo.hello"]("flyte2")
-    print("run name:", run.name)
-    print("run url:", run.url)
-    print("run output:", run.output)
-    print()
-    print(run.report())
+def main() raises:
+    var cfg = init_from_config()
+    print("mode:", cfg.mode, "  cluster:", cfg.endpoint)
+
+    var r = run[f=hello, name="demo.hello"]("flyte2")
+    print("run:   ", r.name)
+    print("url:   ", r.url)
+    print("output:", r.output)

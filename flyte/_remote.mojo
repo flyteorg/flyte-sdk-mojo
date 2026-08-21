@@ -1,29 +1,45 @@
 """Remote (live cluster) runs.
 
-v1 strategy (design doc, Tier 2): the Mojo SDK drives the Python ``flyte``
-control plane — it initializes the cluster session (PKCE auth handled by
-the Python SDK), loads the task from a Python file, launches the run on
-the cluster, waits for it, and hands back the run name, URL, and output.
+Two entry points, in order of how much you have to think about:
 
-    var args: List[String] = ["flyte2"]
-    var run = remote_run(file="remote_hello_task.py", task="hello", args=args)
-    print(run.name)
-    print(run.url)
-    print(run.output)
+``_remote_dispatch`` — what ``run[...]`` uses in remote mode. It ships *this
+program*: the Python bridge compiles the running .mojo source to a
+linux/amd64 binary, bundles it with a generated action shim, launches the
+run, waits, and hands back the result. Nothing extra to write.
+
+``remote_run(file, task, args)`` — the explicit escape hatch: launch a task
+that is defined in a Python file. Use it to call into Python tasks that
+already exist; the Mojo side is only the control plane.
 """
 from std.collections import List
 from std.python import Python
 
 from ._run import Run
 from ._state import state
+from ._wire import from_wire
+
+
+def _remote_dispatch[B: Writable & Copyable & Deinitable](
+    fqn: String, run_name: String, args: List[String]
+) raises -> Run[B]:
+    """Run action ``fqn`` of the running program on the cluster."""
+    var st = state()
+    var py_args = Python.list()
+    for a in args:
+        py_args.append(a)
+    var result = st.remote_run_mojo(fqn, py_args, run_name)
+    var out = from_wire[B](String(result["output"]))
+    return Run[B](
+        String(result["name"]), String(result["url"]), String(result["phase"]), out^
+    )
 
 
 def remote_run(file: String, task: String, args: List[String]) raises -> Run[String]:
-    """Run a task (defined in a Python file) on the live Flyte cluster.
+    """Run a task defined in a *Python* file on the live Flyte cluster.
 
     ``file``  — path to the Python file defining the task.
     ``task``  — the task's name in that file.
-    ``args``  — positional arguments for the task (v1: string arguments).
+    ``args``  — positional arguments for the task (string arguments).
     """
     var st = state()
     var py_args = Python.list()

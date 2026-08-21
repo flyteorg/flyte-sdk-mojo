@@ -1,7 +1,7 @@
-"""remote_hello_task.py — task definition executed on the live Flyte cluster.
+"""python_task.py — a plain Python Flyte task, driven from python_task.mojo.
 
-This is a plain Python file (the cluster runs Python action containers);
-the Mojo SDK drives it as the control plane.
+Nothing Mojo-specific here: this is what an existing Flyte 2 Python task
+looks like. ``remote_run`` in the Mojo driver launches it.
 """
 import flyte
 
