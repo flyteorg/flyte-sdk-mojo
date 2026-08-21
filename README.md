@@ -33,9 +33,10 @@ output: hello, flyte2!
 ```
 
 No task file, no Python shim, no build step. The task body that ran on the
-cluster is compiled Mojo. Call one task from another and it becomes a child
-action; call a trace and it becomes a span — see
-[Multi-action workflows](#multi-action-workflows).
+cluster is compiled Mojo, in a binary that does not link Python at all — see
+[What runs in Mojo, what runs in Python](#what-runs-in-mojo-what-runs-in-python).
+Call one task from another and it becomes a child action; call a trace and it
+becomes a span — see [Multi-action workflows](#multi-action-workflows).
 
 ## How one file runs in three places
 
@@ -58,7 +59,7 @@ run[f=hello, ...]("flyte2")                  │ 1. shim execs the binary   │
     │  1. hash every .mojo input             │      demo.hello            │
     │  2. docker build (cached image)        │ 2. main() runs again, this │
     │     mojo build -O3  ─────────────────▶ │    time as a worker        │
-    │  3. generate a one-task shim           │ 3. run[...] matches the    │
+    │  3. generate the action shim           │ 3. run[...] matches the    │
     │  4. flyte bundle + launch + wait  ◀────│    action, prints the      │
     ▼                                        │    result, exits           │
 Run[B] — typed output, name, url             └────────────────────────────┘
@@ -72,6 +73,82 @@ stdout line. Everything else the program prints becomes pod logs.
 Builds are cached on the content of your program plus every `.mojo` file in
 a subdirectory (i.e. the SDK). An unchanged program launches in ~5s; a
 changed one recompiles in ~15s. The one-time builder image build is ~1 min.
+
+## What runs in Mojo, what runs in Python
+
+Your task body is always native Mojo. Python is the *control plane* on your
+machine and a thin supervisor in the pod — it is never in the compute path.
+
+| | Mojo | Python |
+|---|---|---|
+| **your machine** | your program; binding, local execution, the local trace | reads the config, cross-compiles, bundles, authenticates, launches, waits |
+| **the action pod** | the task body, its traces, and all of its control flow | receives the action, execs the binary, turns its requests into child actions and trace spans |
+
+The pod half is worth being concrete about: the compiled binary does not link
+Python at all.
+
+```sh
+$ ldd task_binary          # inside the linux/amd64 image, no LD_LIBRARY_PATH set
+    libKGENCompilerRTShared.so => not found     # the Mojo runtime, bundled beside it
+    libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+    /lib64/ld-linux-x86-64.so.2
+```
+
+libc and the Mojo runtime, and nothing else. Mojo loads a Python interpreter on
+demand, at the first interop call — and a worker never makes one.
+
+There is still a Python process in the pod — the generated shim is a Flyte task,
+and Flyte schedules Python — but it only supervises. It execs the binary, reads
+control lines off its stdout, and calls back into the Flyte SDK for the things
+only the control plane can do: launching a child action, opening a
+`flyte.trace` span, entering a `flyte.group`. Between those calls it is
+blocked, and your Mojo code is what is running.
+
+### Inside the SDK
+
+Everything a worker relies on is Python-free, and that is deliberate rather
+than incidental: a task pod is never one missing interpreter away from failing.
+The modules that do reach Python are the ones only a driver runs.
+
+| Module | Python? | |
+|---|---|---|
+| `_mode.mojo` | no | which role this process plays — `getenv`/`setenv` only |
+| `_wire.mojo` | no | `String`↔typed values, resolved at compile time |
+| `_bridge.mojo` | no | the control protocol and journal — stdout/stdin only |
+| `_env.mojo` | no | `TaskEnvironment` — comptime binding, no calls of its own |
+| `_core.mojo` | worker path: **no** | task/trace/run wrappers |
+| `_map.mojo` | worker path: **no** | fan-out; the remote path is a protocol message |
+| `_state.mojo` | yes | finds and imports the Python bridge |
+| `_config.mojo` | yes | reads `~/.flyte/config.yaml` |
+| `_ctx.mojo`, `_run.mojo`, `_group.mojo` | driver/local only | bookkeeping; each short-circuits in a worker |
+| `_remote.mojo` | yes | hands a launch to the Python bridge |
+
+On the Python side, `flyte/_flyte_mojo_state.py` runs on your machine and
+`flyte/flyte_mojo_shim.py` runs in the pod. Only the latter is copied into the
+code bundle.
+
+### Why Python at all
+
+Three reasons, none of them "Mojo can't":
+
+1. **Flyte's action worker runs Python.** A pod is handed a Python task to
+   import and call. There is no Mojo action protocol to register against, so
+   something Python-shaped has to *be* the task and hand off from there.
+2. **Mojo has no module-level mutable state.** The local trace — runs, events,
+   nesting — needs somewhere to live for the length of a process, so it lives
+   in a Python module the Mojo side talks to over a flat, scalars-only API.
+3. **The control plane already exists.** PKCE auth, image resolution, code
+   bundling, gRPC to the cluster, run polling. Reimplementing that in Mojo
+   would be a large amount of work for an identical result.
+
+Reason 2 is the one that could go away on its own as Mojo grows globals.
+Reason 1 is the real milestone: a native Mojo action worker speaking Flyte's
+gRPC protocol would remove Python from the pod entirely, and the binary already
+being interpreter-free is most of the way there. Reason 3 will likely stay
+true, and that is fine — it is a control plane, not a hot loop.
+
+Local execution needs a Python interpreter but *not* the Flyte SDK: the bridge
+imports `flyte` lazily, only on the paths that talk to a cluster.
 
 ## Multi-action workflows
 
@@ -90,9 +167,10 @@ So `pipeline.mojo` is one file, and this is the tree Flyte builds from it:
 etl.pipeline                  root action
 ├─ etl.extract                child action
 │   └─ etl_normalize          trace
-├─ etl.score  x4              child actions, started within 40ms of each other
-└─ etl.summarize              child action
-    └─ etl_grade              trace
+└─ scoring                    a group the code opened
+    ├─ etl.score  x4          child actions, started within 40ms of each other
+    └─ etl.summarize          child action
+        └─ etl_grade          trace
 ```
 
 Nothing declares that shape. It falls out of what the Mojo code calls, so it can
@@ -147,14 +225,15 @@ a cluster round trip:
 etl.pipeline(4)
   etl.extract(4)
     ~etl.normalize(4)
-  etl.score(1)
-  etl.score(8)
-  etl.score(15)
-  etl.score(22)
-  etl.summarize(2166116814, 4)
-    ~etl.grade(2166116814)
+  [scoring]
+    etl.score(1)
+    etl.score(8)
+    etl.score(15)
+    etl.score(22)
+    etl.summarize(2166116814, 4)
+      ~etl.grade(2166116814)
 
-7 actions, 2 traces
+7 actions, 2 traces, 1 groups
 output: scored 4 items, total=2166116814, grade=warm
 ```
 
@@ -250,10 +329,9 @@ A missing *default* config is not an error — it means local mode. A missing
 - **Naming**: the bound name is the Flyte action name; FQN = `{env}.{name}`.
 - **Errors**: `raise Error("...")` inside a task; failures are recorded in
   the trace and propagate to the caller, locally and remotely.
-- **State**: all driver-side mutable state lives in the Python bridge
-  (`_flyte_mojo_state.py`) — Mojo modules have no globals. The *worker* path
-  deliberately never touches it, so a task pod needs no Python interpreter
-  of its own.
+- **State**: all driver-side mutable state lives in the Python bridge, because
+  Mojo modules have no globals. The worker path never touches it — see
+  [What runs in Mojo, what runs in Python](#what-runs-in-mojo-what-runs-in-python).
 
 ### Where the SDK lives
 
