@@ -427,6 +427,13 @@ def remote_run(file, task, args):
 
     pyflyte = _pyflyte()
 
+    # A path relative to the .mojo program is friendlier than one relative to
+    # whatever directory the user happened to run from.
+    if not os.path.exists(file) and _SESSION["program"]:
+        beside = os.path.join(os.path.dirname(_SESSION["program"]), file)
+        if os.path.exists(beside):
+            file = beside
+
     directory = os.path.dirname(os.path.abspath(file))
     if directory not in sys.path:
         sys.path.insert(0, directory)
@@ -462,6 +469,8 @@ BUILDER_IMAGE = "flyte-mojo-builder:%s" % MOJO_VERSION
 # shim sits in the code bundle, so every path segment must be a valid Python
 # identifier.
 WORKDIR = "_flyte_mojo"
+PACKAGE = "flyte"
+BRIDGE_MODULE = "_flyte_mojo_state.py"   # this file; how the package is recognised
 BINARY_NAME = "task_binary"
 OUTPUT_MARK = "__FLYTE_MOJO_OUTPUT__:"
 ACTION_TIMEOUT = 900
@@ -591,25 +600,61 @@ def _identifier(text):
     return name
 
 
-def _mojo_sources(root, program):
-    """Every .mojo file that can affect this program's build.
+def sdk_root(program):
+    """The directory holding the ``flyte/`` package — the build and bundle root.
 
-    That is the program itself plus every .mojo file in a subdirectory —
-    those are the importable packages, such as ``flyte/``. Sibling top-level
-    programs are skipped so that editing one example does not invalidate the
-    cached build of another.
+    Not the program's own directory: an example under ``examples/`` compiles
+    and bundles against the SDK beside it, so the root has to be their common
+    ancestor.
     """
-    found = [program]
-    for dirpath, dirnames, filenames in os.walk(root):
+    override = os.environ.get("FLYTE_MOJO_SDK")
+    if override:
+        return os.path.dirname(os.path.abspath(override))
+    here = os.path.dirname(os.path.abspath(program))
+    for _ in range(8):
+        if os.path.exists(os.path.join(here, PACKAGE, BRIDGE_MODULE)):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    raise RuntimeError(
+        "flyte: cannot find the %s/ package above %s — a remote run compiles "
+        "the program against it, so the two must share a directory tree."
+        % (PACKAGE, program)
+    )
+
+
+def _walk_mojo(directory):
+    """Every .mojo file under ``directory``."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(directory):
         dirnames[:] = [
             d for d in dirnames
-            if not d.startswith(".") and d not in ("__pycache__", "node_modules")
+            if not d.startswith(".") and d not in ("__pycache__", "node_modules", WORKDIR)
         ]
-        if os.path.abspath(dirpath) == os.path.abspath(root):
-            continue
         for filename in filenames:
             if filename.endswith(".mojo"):
                 found.append(os.path.join(dirpath, filename))
+    return found
+
+
+def _mojo_sources(root, program):
+    """Every .mojo file that can affect this program's build.
+
+    The program, the SDK it compiles against, and any package in a
+    subdirectory beside it. Sibling programs are skipped, so editing one
+    example does not invalidate another's cached build.
+    """
+    program = os.path.abspath(program)
+    found = [program] + _walk_mojo(os.path.join(root, PACKAGE))
+    beside = os.path.dirname(program)
+    for entry in sorted(os.listdir(beside)):
+        path = os.path.join(beside, entry)
+        if entry.startswith(".") or entry in ("__pycache__", WORKDIR, PACKAGE):
+            continue
+        if os.path.isdir(path):
+            found += _walk_mojo(path)
     return sorted(set(found))
 
 
@@ -685,7 +730,8 @@ def build_program(root, program):
     rel_src = os.path.relpath(program, root)
     _log("compiling %s for linux/amd64 (%s)..." % (rel_src, fingerprint))
 
-    script = "set -e; mojo build -O3 -o %s %s; cp %s %s/" % (
+    # -I /src so a program in a subdirectory can still import the package.
+    script = "set -e; mojo build -O3 -I /src -o %s %s; cp %s %s/" % (
         shlex.quote("/src/%s/%s" % (rel_out, BINARY_NAME)),
         shlex.quote("/src/%s" % rel_src),
         # MOJO_LIB_DIR is set by the builder image; it must stay unquoted so
@@ -785,7 +831,7 @@ def remote_run_mojo(action, args, run_name=""):
             "flyte: cannot find the running program at %s — remote mode needs "
             "the .mojo source to compile a task binary from." % program
         )
-    root = os.path.dirname(os.path.abspath(program)) or os.getcwd()
+    root = sdk_root(program)
 
     pyflyte = _pyflyte()
     outdir = build_program(root, program)

@@ -6,7 +6,7 @@ the same program rather than a Flyte task, and a trace span is recorded
 rather than opened on a cluster. The action tree it prints is the tree Flyte
 would build.
 
-    python tests/simulate.py pipeline.mojo etl.pipeline 4
+    python tests/simulate.py examples/pipeline.mojo etl.pipeline 4
 
 Use it to develop a workflow before paying for a cluster round trip, and to
 test the protocol in CI.
@@ -45,7 +45,7 @@ class Sim:
         self.actions += 1
         self._emit(depth, "%s(%s)" % (name, ", ".join(args)))
         proc = subprocess.Popen(
-            ["mojo", "run", self.program, *args],
+            ["mojo", "run", "-I", ".", self.program, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

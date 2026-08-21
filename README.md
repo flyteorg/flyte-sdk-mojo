@@ -5,7 +5,7 @@ compile time, and run it. **Where it runs is a property of the config, not
 of your code** — the same file runs in-process or natively on a cluster.
 
 ```mojo
-# hello.mojo
+# examples/hello.mojo
 from flyte import *
 
 def _hello(name: String) -> String:
@@ -21,9 +21,9 @@ def main() raises:
 ```
 
 ```sh
-$ mojo run hello.mojo
+$ mojo run -I . examples/hello.mojo
 mode: remote   cluster: dns:///demo.hosted.unionai.cloud
-[flyte-mojo] compiling hello.mojo for linux/amd64 (a764ebfcbe82)...
+[flyte-mojo] compiling examples/hello.mojo for linux/amd64 (83d2a38209cf)...
 [flyte-mojo] launching demo.hello on the cluster...
 [flyte] OK Code bundle: 6 files, 2.10 MB (compressed 0.81 MB)
 [flyte] OK Run 'uks6hfs5tkhl4c6nwm8b' completed successfully
@@ -50,8 +50,8 @@ branches on them: `init_from_config()` and `run[...]` do.
 | **worker** | `FLYTE_MOJO_ACTION` is set (inside the pod) | executes the named action, and asks the shim for any child actions and traces it hits |
 
 ```
-mojo run hello.mojo                          cluster (linux/amd64)
-─────────────────────                        ─────────────────────
+mojo run -I . examples/hello.mojo            cluster (linux/amd64)
+─────────────────────────────────           ─────────────────────
 init_from_config()  ── endpoint? ──▶ remote  ┌────────────────────────────┐
                                              │ action pod                 │
 run[f=hello, ...]("flyte2")                  │ 1. shim execs the binary   │
@@ -161,7 +161,7 @@ One rule, the same one Flyte already uses:
 - `map[f=task, name=...](items)` fans out into **one child action per item**,
   launched together
 
-So `pipeline.mojo` is one file, and this is the tree Flyte builds from it:
+So `examples/pipeline.mojo` is one file, and this is the tree Flyte builds from it:
 
 ```
 etl.pipeline                  root action
@@ -174,7 +174,7 @@ etl.pipeline                  root action
 ```
 
 Nothing declares that shape. It falls out of what the Mojo code calls, so it can
-depend on the data — `agent.mojo` decides how many `agent.search` actions to run
+depend on the data — `examples/agent.mojo` decides how many `agent.search` actions to run
 from the question it was given, and whether to run a second round from what the
 first one scored.
 
@@ -265,15 +265,26 @@ source .venv/bin/activate
 - For cluster runs: `~/.flyte/config.yaml` (as produced by `flyte init`) and
   a running Docker daemon (to cross-compile the linux/amd64 task binary)
 
+Mojo resolves packages relative to the file being compiled, so a program in
+`examples/` needs the repo root on the import path. Run from the root with
+`-I .`:
+
+```sh
+mojo run -I . examples/hello.mojo
+```
+
+Every `make` target already does this. A program sitting *beside* `flyte/`
+needs no flag at all.
+
 ## Examples
 
 | File | Shows |
 |------|-------|
-| `hello.mojo` | the minimal task — one function, one run |
-| `fib.mojo` | native-speed compute, typed `Int` in and out, and the failure path |
-| `pipeline.mojo` | a multi-action workflow: extract → parallel fan-out → summarize, with traces |
-| `agent.mojo` | a *data-dependent* tree: branch on a result, and a child action with children of its own |
-| `python_task.mojo` + `.py` | the escape hatch: drive an *existing Python* task from Mojo |
+| `examples/hello.mojo` | the minimal task — one function, one run |
+| `examples/fib.mojo` | native-speed compute, typed `Int` in and out, and the failure path |
+| `examples/pipeline.mojo` | a multi-action workflow: extract → parallel fan-out → summarize, with traces |
+| `examples/agent.mojo` | a *data-dependent* tree: branch on a result, and a child action with children of its own |
+| `examples/python_task.mojo` + `.py` | the escape hatch: drive an *existing Python* task from Mojo |
 
 ```sh
 make hello        # or fib / pipeline / agent / python-task
@@ -335,13 +346,19 @@ A missing *default* config is not an error — it means local mode. A missing
 
 ### Where the SDK lives
 
-Everything the SDK needs is inside `flyte/`, including its two Python halves —
-the repo root is yours. `flyte/` deliberately has **no `__init__.py`**: adding
+Everything the SDK needs is inside `flyte/`, including its two Python halves.
+Your code lives in `examples/`, and the repo root holds nothing but the
+`Makefile` and this file. `flyte/` deliberately has **no `__init__.py`**: adding
 one would make it a regular Python package on `sys.path` and shadow the
 installed Flyte SDK. `flyte/_state.mojo` therefore finds the bridge by walking
 up from your program looking for `flyte/_flyte_mojo_state.py`, and imports it
 under its own name. Set `FLYTE_MOJO_SDK` to the package directory if you keep it
 somewhere unusual.
+
+That same directory is the *build root*: a remote run compiles your program
+against the SDK and bundles both, so the two have to share a directory tree.
+The build cache key is your program plus every `.mojo` file in the package —
+editing one example never invalidates another's cached build.
 
 ## Limits worth knowing
 
@@ -365,7 +382,7 @@ These are real constraints of the current design, not TODO noise.
   action gets Flyte's default image and resources — including a fanned-out task
   that might want a GPU.
 - **One pod per action, and each pod re-execs the binary.** Startup dominates
-  anything short: in `pipeline.mojo` the four `etl.score` actions spend ~3s each
+  anything short: in `examples/pipeline.mojo` the four `etl.score` actions spend ~3s each
   on pod overhead around ~25ms of actual Mojo. Fan out over real work, not
   microseconds of it.
 - **linux/amd64 only**, and Docker is required to produce it.
@@ -389,15 +406,17 @@ flyte/                  # Mojo SDK package
   _state.mojo           # finds and imports the Python bridge below
   _flyte_mojo_state.py  # driver side: state, config, cross-compile, launch
   flyte_mojo_shim.py    # pod side: drives the binary, services its requests
-hello.mojo              # minimal task
-agent.mojo              # data-dependent tree: branching + a grandchild action
-fib.mojo                # native compute + failure path
-pipeline.mojo           # multi-action workflow: fan-out + traces
-python_task.mojo/.py    # escape hatch: an existing Python task
-tests/local_test.mojo   # 53 checks
-tests/worker_checks.sh  # 25 worker/protocol checks (no cluster needed)
-tests/simulate.py       # runs a multi-action tree locally, one process per action
-tests/worker_flow.mojo  # fixture program for the worker-role checks
-tests/fixture_config.yaml  # fixed config so the suite is machine-independent
+examples/               # user-space code — nothing the SDK needs
+  hello.mojo            # minimal task
+  fib.mojo              # native compute + failure path
+  pipeline.mojo         # multi-action workflow: fan-out + traces
+  agent.mojo            # data-dependent tree: branching + a grandchild action
+  python_task.mojo/.py  # escape hatch: an existing Python task
+tests/
+  local_test.mojo       # 53 checks
+  worker_checks.sh      # 25 worker/protocol checks (no cluster needed)
+  simulate.py           # runs a multi-action tree locally, one process per action
+  worker_flow.mojo      # fixture program for the worker-role checks
+  fixture_config.yaml   # fixed config so the suite is machine-independent
 _flyte_mojo/            # generated: builder Dockerfile + cached builds (gitignored)
 ```

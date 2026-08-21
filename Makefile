@@ -1,37 +1,38 @@
 .PHONY: hello agent fib fib-fail pipeline python-task simulate test test-worker local clean clean-build
 
-# Each example is a single .mojo file. With a cluster config it compiles
-# itself for linux/amd64 and runs there; without one it runs in-process.
+# Examples live in examples/ and the SDK in flyte/, so Mojo needs -I . to
+# resolve `from flyte import *`. Run these from the repo root.
+MOJO = mojo run -I .
 
 hello:
-	mojo run hello.mojo
+	$(MOJO) examples/hello.mojo
 
 agent:
-	mojo run agent.mojo
+	$(MOJO) examples/agent.mojo
 
 fib:
-	mojo run fib.mojo
+	$(MOJO) examples/fib.mojo
 
 pipeline:                       ## multi-action workflow: extract -> fan-out -> summarize
-	mojo run pipeline.mojo
+	$(MOJO) examples/pipeline.mojo
 
 fib-fail:                       ## failure path: the Mojo error comes back from the cluster
-	FIB_N=200 mojo run fib.mojo
+	FIB_N=200 $(MOJO) examples/fib.mojo
 
 python-task:                    ## escape hatch: drive an existing Python task
-	mojo run python_task.mojo
+	$(MOJO) examples/python_task.mojo
 
 local:                          ## run the examples in-process, ignoring any cluster config
-	HOME=$$(mktemp -d) mojo run hello.mojo
-	HOME=$$(mktemp -d) mojo run pipeline.mojo
-	HOME=$$(mktemp -d) mojo run agent.mojo
+	HOME=$$(mktemp -d) $(MOJO) examples/hello.mojo
+	HOME=$$(mktemp -d) $(MOJO) examples/pipeline.mojo
+	HOME=$$(mktemp -d) $(MOJO) examples/agent.mojo
 
 simulate:                       ## the multi-action tree, one process per action, no cluster
-	FLYTE_MOJO_SIM_HOME=$$(mktemp -d) python tests/simulate.py pipeline.mojo etl.pipeline 4
-	FLYTE_MOJO_SIM_HOME=$$(mktemp -d) python tests/simulate.py agent.mojo agent.solve "what is mojo"
+	FLYTE_MOJO_SIM_HOME=$$(mktemp -d) python tests/simulate.py examples/pipeline.mojo etl.pipeline 4
+	FLYTE_MOJO_SIM_HOME=$$(mktemp -d) python tests/simulate.py examples/agent.mojo agent.solve "what is mojo"
 
 test:
-	mojo run tests/local_test.mojo
+	$(MOJO) tests/local_test.mojo
 	$(MAKE) test-worker
 
 test-worker:                    ## the worker role and control protocol, no cluster needed

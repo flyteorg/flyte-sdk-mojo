@@ -38,43 +38,43 @@ refute() {  # refute <label> <forbidden-regex> <actual>
 }
 
 echo "== worker: the launched action emits a marked result =="
-out=$(FLYTE_MOJO_ACTION=demo.hello mojo run hello.mojo 2>&1 </dev/null)
+out=$(FLYTE_MOJO_ACTION=demo.hello mojo run -I . examples/hello.mojo 2>&1 </dev/null)
 check "hello emits its result" '^__FLYTE_MOJO_OUTPUT__:hello, flyte2!$' "$out"
 
-out=$(FLYTE_MOJO_ACTION=demo.hello mojo run hello.mojo mojo 2>&1 </dev/null)
+out=$(FLYTE_MOJO_ACTION=demo.hello mojo run -I . examples/hello.mojo mojo 2>&1 </dev/null)
 check "the driver's argument wins over the replayed one" '__FLYTE_MOJO_OUTPUT__:hello, mojo!' "$out"
 
 echo "== worker: a task reached only through another task can be launched =="
-out=$(FLYTE_MOJO_ACTION=j.final mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+out=$(FLYTE_MOJO_ACTION=j.final mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 check "j.final runs though main() never runs it directly" '__FLYTE_MOJO_OUTPUT__:final:n20' "$out"
 
 echo "== worker: the journal replaces work already done =="
 check "without a journal the earlier task re-executes" 'EXECUTED step\(2\)' "$out"
 
 out=$(FLYTE_MOJO_ACTION=j.final FLYTE_MOJO_JOURNAL="$(printf 'j.step\t70\t2')" \
-      mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+      mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 refute "with a journal it does not re-execute" 'EXECUTED' "$out"
 check "and its recorded result is what flows on" '__FLYTE_MOJO_OUTPUT__:final:n70' "$out"
 
 echo "== worker: traces are reported only from inside the launched action =="
 out=$(FLYTE_MOJO_ACTION=j.final FLYTE_MOJO_PROTOCOL=1 \
-      FLYTE_MOJO_JOURNAL="$(printf 'j.step\t70\t2')" mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+      FLYTE_MOJO_JOURNAL="$(printf 'j.step\t70\t2')" mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 check "the trace opens a span" '__FLYTE_MOJO_SPAN__:begin\tj.label' "$out"
 check "the trace closes it with its output" '__FLYTE_MOJO_SPAN__:end\tn70' "$out"
 
 out=$(FLYTE_MOJO_ACTION=j.flow FLYTE_MOJO_PROTOCOL=1 \
-      mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+      mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 check "a nested task becomes a child-action request" '__FLYTE_MOJO_CALL__:call\tj.step\t2' "$out"
 
 echo "== worker: groups are opened by the program, never implied =="
 out=$(FLYTE_MOJO_ACTION=j.final FLYTE_MOJO_PROTOCOL=1 \
-      FLYTE_MOJO_JOURNAL="$(printf 'j.step\t70\t2')" mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+      FLYTE_MOJO_JOURNAL="$(printf 'j.step\t70\t2')" mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 check "with group(...) opens one"  '__FLYTE_MOJO_GROUP__:begin\tfinishing' "$out"
 check "and leaving the block closes it" '__FLYTE_MOJO_GROUP__:end' "$out"
 count "exactly one group is opened" '__FLYTE_MOJO_GROUP__:begin' 1 "$out"
 
 # j.step is inside no group at all, so its worker must announce none
-out=$(FLYTE_MOJO_ACTION=j.step FLYTE_MOJO_PROTOCOL=1 mojo run tests/worker_flow.mojo 2>&1 </dev/null)
+out=$(FLYTE_MOJO_ACTION=j.step FLYTE_MOJO_PROTOCOL=1 mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 refute "an ungrouped action announces no group" '__FLYTE_MOJO_GROUP__' "$out"
 
 echo "== the whole protocol, driven end to end by the simulator =="
@@ -90,12 +90,12 @@ check "the result comes back through every hop" 'output: final:n20' "$out"
 check "an upstream task runs exactly once across the whole tree" \
       "^$(printf '%s' "$out" | grep -c 'EXECUTED step')$" "1"
 
-out=$(python tests/simulate.py agent.mojo agent.solve "what is mojo" 2>&1)
+out=$(python tests/simulate.py examples/agent.mojo agent.solve "what is mojo" 2>&1)
 count "fan-out produces one action per item" '^  agent\.search\(' 3 "$out"
 check "a child action can have children of its own" '^    agent\.rerank\(' "$out"
 check "and the branch taken is data-dependent" '^  agent\.answer\(what is mojo, sufficient\)$' "$out"
 
-out=$(python tests/simulate.py pipeline.mojo etl.pipeline 0 2>&1 || true)
+out=$(python tests/simulate.py examples/pipeline.mojo etl.pipeline 0 2>&1 || true)
 check "a failing action reports the Mojo error" 'rows must be positive, got 0' "$out"
 
 echo
