@@ -1,0 +1,11 @@
+# Fixture cluster config for the test suite. Kept separate from any real
+# ~/.flyte/config.yaml so the tests assert on fixed values and pass on any
+# machine.
+admin:
+  endpoint: dns:///fixture.example.com
+image:
+  builder: remote
+task:
+  org: fixture-org
+  project: fixture-project
+  domain: development

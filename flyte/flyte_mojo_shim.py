@@ -1,0 +1,280 @@
+"""Pod-side runtime for compiled-Mojo Flyte actions.
+
+Part of the SDK, but the only part that runs *inside the action pod*: it is
+copied into the code bundle next to the compiled Mojo binary it drives. The
+generated per-action shim is only a few lines — it builds the
+TaskEnvironment and calls ``drive`` here.
+
+``drive`` execs the binary with ``FLYTE_MOJO_ACTION`` naming the action to
+run and speaks the control protocol in ``flyte/_bridge.mojo`` over pipes, so
+the Mojo program can ask for real Flyte work while it runs:
+
+    CALL call fqn args...   ->  a child action (a new pod, same binary)
+    CALL map  fqn args...   ->  one child action per argument, in parallel
+    SPAN begin fqn args...  ->  open a flyte.trace context
+    SPAN end   output error ->  close it
+    GROUP begin name        ->  open a flyte.group context
+    GROUP end               ->  close it
+    OUTPUT value            ->  the action's result
+
+Because the trace context is held open for exactly as long as the Mojo code
+runs, spans carry real timings and nest correctly in the Flyte UI.
+
+A worker launched for a late action still runs main() from the top to reach
+it, so every child action is handed a *journal* of the results already
+computed for this run. The Mojo side reads it back instead of re-executing
+those calls — otherwise a five-step pipeline would run step one five times.
+"""
+
+import asyncio
+import os
+import re
+import subprocess
+
+import flyte
+
+BINARY_NAME = "task_binary"
+OUTPUT_MARK = "__FLYTE_MOJO_OUTPUT__:"
+CALL_MARK = "__FLYTE_MOJO_CALL__:"
+SPAN_MARK = "__FLYTE_MOJO_SPAN__:"
+GROUP_MARK = "__FLYTE_MOJO_GROUP__:"
+
+# Lines the Mojo runtime always prints, which say nothing about a failure.
+_NOISE = ("stack trace was not collected",)
+_PANIC = "Unhandled exception caught during execution: "
+
+
+class _WorkerExit(Exception):
+    """The binary closed its stdout — its exit code explains why."""
+
+
+# --------------------------------------------------------------------------
+# Field codec — mirrors _escape/_unescape in flyte/_bridge.mojo
+# --------------------------------------------------------------------------
+
+def _escape(field):
+    return (
+        field.replace("\\", "\\\\")
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+
+
+def _unescape(field):
+    out = []
+    pending = False
+    for ch in field:
+        if pending:
+            out.append({"t": "\t", "n": "\n", "r": "\r"}.get(ch, ch))
+            pending = False
+        elif ch == "\\":
+            pending = True
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _decode_row(payload):
+    return [_unescape(f) for f in payload.split("\t")]
+
+
+def _encode_row(fields):
+    return "\t".join(_escape(str(f)) for f in fields)
+
+
+def identifier(text):
+    """A Python identifier derived from an action FQN ("demo.hello")."""
+    name = re.sub(r"\W", "_", text).strip("_") or "action"
+    return "a_" + name if name[0].isdigit() else name
+
+
+def reason(lines):
+    """The Mojo error out of a failed run's output, without the boilerplate."""
+    kept = []
+    for line in lines:
+        line = line.strip()
+        if not line or any(noise in line for noise in _NOISE):
+            continue
+        if line.startswith(_PANIC):
+            return line[len(_PANIC):]
+        kept.append(line)
+    return " | ".join(kept[-3:])
+
+
+# --------------------------------------------------------------------------
+# Driving one action
+# --------------------------------------------------------------------------
+
+class _Run:
+    """Everything the pump needs while driving one action."""
+
+    def __init__(self, proc, dispatch, journal):
+        self.proc = proc
+        self.dispatch = dispatch
+        self.journal = list(journal)
+        self.logs = []
+        self.groups = []     # flyte.group contexts the program has opened
+
+    def close_groups(self):
+        """Leave any group the program opened but never closed."""
+        while self.groups:
+            try:
+                self.groups.pop().__exit__(None, None, None)
+            except Exception:
+                pass
+
+
+async def drive(here, action, args, dispatch, journal=()):
+    """Run ``action`` of the bundled Mojo binary, servicing what it asks for.
+
+    ``dispatch(fqn, args, journal)`` returns an awaitable that runs ``fqn`` as
+    a child action; the generated shim maps each known action to its own named
+    Flyte task and falls back to a generic one for anything it did not
+    discover. ``journal`` carries results already computed for this run.
+    """
+    binary = os.path.join(here, BINARY_NAME)
+    os.chmod(binary, 0o755)
+    proc = subprocess.Popen(
+        [binary, *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        env={
+            **os.environ,
+            "LD_LIBRARY_PATH": here,
+            "FLYTE_MOJO_ACTION": action,
+            "FLYTE_MOJO_PROTOCOL": "1",
+            "FLYTE_MOJO_JOURNAL": "\n".join(journal),
+        },
+    )
+
+    run = _Run(proc, dispatch, journal)
+    result = None
+    failure = None
+    try:
+        result = await _pump(run)
+    except _WorkerExit:
+        pass  # the exit code below is the real story
+    except Exception as exc:  # a child action or span failed
+        failure = exc
+    finally:
+        run.close_groups()
+
+    # Closing stdin unblocks a worker still waiting on a reply, so this
+    # cannot hang even when we are unwinding from a failure.
+    try:
+        rest_out, rest_err = await asyncio.to_thread(proc.communicate, None, 120)
+    except Exception:
+        proc.kill()
+        rest_out, rest_err = "", ""
+    for line in (rest_out + rest_err).splitlines():
+        run.logs.append(line)
+        print(line)
+
+    if failure is not None:
+        raise failure
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "mojo action %s failed (exit %s): %s"
+            % (action, proc.returncode, reason(run.logs) or "no output")
+        )
+    if result is None:
+        raise RuntimeError(
+            "mojo action %s produced no result: the program ran to completion "
+            "without reaching a task bound as %r" % (action, action)
+        )
+    return result
+
+
+async def _pump(run):
+    """Read control lines until the worker yields a value.
+
+    At the top level that value is the action's result; inside a span it is
+    the span's result, because the same loop serves both.
+    """
+    while True:
+        line = await asyncio.to_thread(run.proc.stdout.readline)
+        if line == "":
+            raise _WorkerExit()
+        line = line.rstrip("\n")
+
+        if line.startswith(OUTPUT_MARK):
+            return line[len(OUTPUT_MARK):]
+
+        if line.startswith(CALL_MARK):
+            await _service_call(run, _decode_row(line[len(CALL_MARK):]))
+            continue
+
+        if line.startswith(GROUP_MARK):
+            fields = _decode_row(line[len(GROUP_MARK):])
+            if fields[0] == "begin":
+                # Entered and left across separate control lines, so the
+                # context has to be driven by hand rather than with `with`.
+                context = flyte.group(fields[1])
+                context.__enter__()
+                run.groups.append(context)
+            elif run.groups:
+                run.groups.pop().__exit__(None, None, None)
+            continue
+
+        if line.startswith(SPAN_MARK):
+            fields = _decode_row(line[len(SPAN_MARK):])
+            if fields[0] == "begin":
+                fqn, span_args = fields[1], fields[2:]
+                await _traced(fqn, run)(span_args)
+                continue
+            output = fields[1] if len(fields) > 1 else ""
+            error = fields[2] if len(fields) > 2 else ""
+            if error:
+                raise RuntimeError(error)
+            return output
+
+        run.logs.append(line)
+        print(line)
+
+
+async def _service_call(run, fields):
+    """Launch child actions on the worker's behalf and reply with the result.
+
+    Siblings of a fan-out all see the same journal snapshot — they are
+    independent, so none of them should be waiting on the others.
+
+    Nothing here opens a group: a child action belongs to whatever group the
+    program itself opened with ``with group(...)``, or to none.
+    """
+    kind, fqn, rest = fields[0], fields[1], fields[2:]
+    snapshot = list(run.journal)
+    try:
+        if kind == "map":
+            outputs = await asyncio.gather(
+                *(run.dispatch(fqn, [item], snapshot) for item in rest)
+            )
+            for item, output in zip(rest, outputs):
+                run.journal.append(_encode_row([fqn, output, item]))
+            reply = ["OK", *outputs]
+        else:
+            output = await run.dispatch(fqn, list(rest), snapshot)
+            run.journal.append(_encode_row([fqn, output, *rest]))
+            reply = ["OK", output]
+    except Exception as exc:
+        reply = ["ERR", "%s: %s" % (fqn, exc)]
+    run.proc.stdin.write(_encode_row(reply) + "\n")
+    run.proc.stdin.flush()
+
+
+def _traced(fqn, run):
+    """A flyte.trace-wrapped span named after the Mojo trace.
+
+    Its body pumps the worker until the span closes, so the trace context is
+    open for exactly the time the Mojo code spends inside it.
+    """
+
+    async def span(args: list[str]) -> str:
+        return await _pump(run)
+
+    span.__name__ = identifier(fqn)
+    span.__qualname__ = span.__name__
+    return flyte.trace(span)
