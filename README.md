@@ -360,9 +360,68 @@ against the SDK and bundles both, so the two have to share a directory tree.
 The build cache key is your program plus every `.mojo` file in the package —
 editing one example never invalidates another's cached build.
 
+## Compared with the Python SDK
+
+This SDK covers Flyte's *execution model* — tasks, traces, child actions,
+fan-out, grouping — so that native Mojo can be the thing a Flyte action runs.
+It does not cover Flyte's platform surface. Most of what is missing is missing
+because nobody has written it yet, not because Mojo is in the way.
+
+### What works
+
+| | Python | Mojo |
+|---|---|---|
+| define a task | `@env.task` | `env.task[f=_fn, name="n"]()` |
+| define a trace | `@flyte.trace` | `env.trace[f=_fn, name="n"]()` |
+| run one | `flyte.run(t, x)` | `run[f=t, name="fqn"](x)` |
+| child actions | call a task inside a task | the same |
+| fan-out | `flyte.map`, `asyncio.gather` | `map[f=t, name="fqn"](items)` |
+| grouping | `with flyte.group("n"):` | `with group("n"):` |
+| config and auth | `flyte.init_from_config()` | `init_from_config()` |
+| run context | `flyte.ctx()` | `ctx()` |
+| local execution | yes | yes, with a trace report |
+| error propagation | exceptions | `Error`, with the Mojo message intact |
+
+### What is missing
+
+| Area | Python | Mojo today |
+|---|---|---|
+| **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
+| **resources** | `Resources(cpu=, memory=, gpu=)` per task | declared on `TaskEnvironment` and ignored — every action gets the cluster default |
+| **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
+| **caching** | `cache="auto"` | none — every action re-runs |
+| **reliability** | `retries=`, `timeout=`, `interruptible=` | none |
+| **secrets** | `Secret` | none |
+| **container reuse** | `ReusePolicy` | none — one pod per action |
+| **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
+| **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
+| **control plane** | `flyte.remote`: list, abort, logs, rerun | launch, wait, fetch the output |
+| **checkpoints** | `flyte.Checkpoint` | none |
+| **concurrency** | `asyncio.gather` over anything | `map` over one list; everything else is sequential |
+| **deployment** | `flyte deploy`, registered reusable tasks | run-only; nothing is registered for others to call |
+
+The gap that constrains the *design* rather than the feature list is the first
+one: values crossing an action boundary have to survive a string round-trip
+(`flyte/_wire.mojo`). Everything below it is additive work.
+
+### Reaching Python when you need it
+
+`remote_run(file, task, args)` launches a task defined in a Python file, so
+anything the Mojo side cannot express is still one call away —
+`examples/python_task.mojo` does this. The trade is that the body is then
+Python: you get the platform feature, not the compiled task.
+
+### What you get that the Python SDK cannot give you
+
+- **The task body is compiled native code.** No interpreter in the compute
+  path, and the binary does not link Python at all.
+- **One file is the driver and every task in it.** No task module, no shim, no
+  separate build step.
+
 ## Limits worth knowing
 
-These are real constraints of the current design, not TODO noise.
+Constraints of how this works, as opposed to features not yet written (those
+are in the table above).
 
 - **Values crossing an action boundary are scalars.** Arguments and results
   travel as strings, and only `String`, `Int`, `Float64` and `Bool` can be read
@@ -377,14 +436,10 @@ These are real constraints of the current design, not TODO noise.
   in-process; only calls to a *different* task become child actions.
 - **The journal rides on an environment variable**, so a run with thousands of
   child results will hit the OS argument-size limit before Flyte's.
-- **`TaskEnvironment` image and resources are descriptive.** They are recorded on
-  the environment but are not yet plumbed into the generated shim, so every
-  action gets Flyte's default image and resources — including a fanned-out task
-  that might want a GPU.
 - **One pod per action, and each pod re-execs the binary.** Startup dominates
-  anything short: in `examples/pipeline.mojo` the four `etl.score` actions spend ~3s each
-  on pod overhead around ~25ms of actual Mojo. Fan out over real work, not
-  microseconds of it.
+  anything short: in `examples/pipeline.mojo` the four `etl.score` actions spend
+  ~3s each on pod overhead around ~25ms of actual Mojo. Fan out over real work,
+  not microseconds of it.
 - **linux/amd64 only**, and Docker is required to produce it.
 
 ## Layout
