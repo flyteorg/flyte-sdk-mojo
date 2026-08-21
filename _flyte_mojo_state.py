@@ -301,6 +301,7 @@ def remote_run(file, task, args):
     global _PY_INITIALIZED
 
     import flyte as pyflyte
+    import flyte.remote  # noqa: F401 — expose pyflyte.remote for ActionDetails
 
     if not _PY_INITIALIZED:
         if _CONFIG_PATH:
@@ -320,6 +321,23 @@ def remote_run(file, task, args):
 
     run = pyflyte.run(fn, *args)
     run.wait()
+
+    # wait() does not raise on failure — check the action phase explicitly.
+    action = run.action
+    phase = action.phase
+    phase_name = getattr(phase, "name", None) or str(phase)
+    if "SUCCEEDED" not in phase_name.upper():
+        msg = ""
+        try:
+            ad = pyflyte.remote.ActionDetails.get_details(action.action_id)
+            if ad.error_info is not None:
+                msg = ad.error_info.message
+        except Exception:
+            pass
+        raise RuntimeError(
+            "remote run %s failed (%s): %s" % (run.name, phase_name, msg or "no error details")
+        )
+
     outputs = run.outputs
     if callable(outputs):
         outputs = outputs()

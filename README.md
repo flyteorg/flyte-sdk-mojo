@@ -25,8 +25,10 @@ hello.mojo
 | Error recording + propagation | ✅ working |
 | Config loading (`~/.flyte/config.yaml`) | ✅ working |
 | Live cluster runs (auth + scheduling + outputs) | ✅ working |
-| Multi-type / complex return values | ✅ String/Int (v1); extension via Writable |
-| Native Mojo tasks on cluster (Tier 3) | ⏳ roadmap (gRPC action protocol) |
+| **Compiled-Mojo task bodies on the cluster** | ✅ working |
+| Failure propagation from cluster (Mojo panic → driver) | ✅ working |
+| Multi-type / complex return values | ✅ String (v1); extension via Writable |
+| Native gRPC action worker in Mojo (full Tier 3) | ⏳ roadmap (the binary path above covers task execution) |
 
 ## Setup
 
@@ -132,6 +134,68 @@ phase: SUCCEEDED
 output: hello, flyte2! doubled(21)=42
 ```
 
+### remote_mojo_task.mojo — compiled-Mojo task bodies on the cluster
+
+This is the headline capability: **the task body itself is a compiled Mojo
+program that runs natively inside the Flyte 2 action** on the cluster.
+
+How it works ("Tier 2.5"):
+
+```
+mac (dev)                                   cluster (linux/amd64)
+──────────                                  ─────────────────────
+hello_task.mojo / fib_task.mojo             ┌──────────────────────────────┐
+        │  mojo build (docker, amd64)       │  action pod                  │
+        ▼                                   │  1. worker imports shim     │
+hello_binary / fib_binary (+ 3 Mojo .so)    │  2. shim execs the binary   │
+        │                                   │  3. BINARY RUNS (native)    │
+        ▼                                   │     args ← argv, result → stdout
+hello_remote.py (shim, include=[binaries])  │  4. stdout → task output    │
+        │                                   └──────────────────────────────┘
+        ▼
+remote_run()  →  flyte control plane (auth/bundle/upload/schedule/poll)
+```
+
+- **Task body**: plain Mojo program — `argv[1:]` in, `stdout` out, exit 1 = failure
+  (`mojo_tasks/hello_task.mojo`, `mojo_tasks/fib_task.mojo`)
+- **Build**: `make remote-build` — docker (`--platform linux/amd64`) +
+  `pip install mojo` + `mojo build`; also copies the three small Mojo runtime
+  `.so` libs the binaries link against
+- **Shim**: `mojo_tasks/hello_remote.py` — `TaskEnvironment(include=[...])`
+  bundles the binaries; each `@env.task` is a ~5-line `subprocess` bridge that
+  sets `LD_LIBRARY_PATH` and returns the binary's stdout. This is the only
+  Python that runs in the pod.
+- **Driver** (Mojo, same API as before):
+
+```mojo
+var args: List[String] = ["flyte2"]
+var r = remote_run(file="mojo_tasks/hello_remote.py", task="hello", args=args)
+print(r.output)   # → hello, flyte2! (compiled Mojo, running on the cluster)
+```
+
+Verified live on `demo.hosted.unionai.cloud`:
+
+```
+$ mojo run remote_mojo_task.mojo
+cluster: dns:///demo.hosted.unionai.cloud demo flytesnacks development
+[flyte] OK Code bundle: 7 files, 1.97 MB (compressed 0.78 MB)
+[flyte] OK Run 'urn4876phphwvpg7dmm8' completed successfully
+hello output: hello, flyte2! (compiled Mojo, running on the cluster)
+[flyte] OK Run 'ubg6xwgtl99wfw5p84gw' completed successfully
+fib(90) = 2880067194370816120
+```
+
+**Failure path** is fully wired: a Mojo panic in the binary
+(e.g. `fib "abc"` → `String is not convertible to integer with base 10: 'abc'`)
+travels binary → shim `RuntimeError` → cluster action `FAILED` →
+`ActionDetails.error_info` → back into the Mojo driver as an `Error`.
+
+```sh
+$ mojo run remote_fail_test.mojo   # expect non-zero exit
+remote run ... failed (FAILED): mojo task fib_binary failed (exit 1):
+  String is not convertible to integer with base 10: 'abc'
+```
+
 ## API
 
 | API | Purpose |
@@ -175,6 +239,14 @@ hello.mojo              # minimal task example
 agent.mojo              # task + trace composition example
 remote_hello.mojo       # live cluster example (driver)
 remote_hello_task.py    # task definition executed on the cluster
+remote_mojo_task.mojo   # compiled-Mojo tasks on the cluster (driver)
+remote_fail_test.mojo   # live-cluster failure-path test (expect non-zero exit)
+mojo_tasks/
+  hello_task.mojo       # task body: greeting (compiled Mojo)
+  fib_task.mojo         # task body: fibonacci (compiled Mojo)
+  hello_binary, fib_binary   # linux/amd64 builds (make remote-build)
+  lib*Runtime*.so       # Mojo runtime libs (copied by make remote-build)
+  hello_remote.py       # shim tasks that exec the binaries in the action pod
 tests/local_test.mojo   # test suite (20 checks)
 ```
 
@@ -182,6 +254,8 @@ tests/local_test.mojo   # test suite (20 checks)
 
 ```sh
 mojo run tests/local_test.mojo   # 20 passed, 0 failed
+make remote-mojo                 # live cluster: compiled-Mojo hello + fib (expect success)
+make remote-fail                 # live cluster: failure propagation (expect non-zero exit)
 ```
 
 ## Design notes
