@@ -31,6 +31,17 @@ async def probe(x: str) -> str:
     return x
 
 
+def _shim_source(image):
+    """Render the generated action shim, the way the driver does."""
+    import _flyte_mojo_state as st
+
+    return st._SHIM % {
+        "action": "e.a", "program": "p.mojo", "binary": st.BINARY_NAME,
+        "runtime": st.SHIM_RUNTIME, "libs": [], "env_name": "e", "tasks": "",
+        "image": (", image=%r" % image) if image else "",
+    }
+
+
 def main():
     failures = []
 
@@ -76,8 +87,17 @@ def main():
     except ValueError as exc:
         check("combining resources and reuse is refused", "cannot combine" in str(exc), exc)
 
+    # The image is the one setting that cannot ride with the action: Flyte
+    # resolves it when the environment is built, so it is baked into the shim.
+    check("no image pin leaves Flyte to choose",
+          "image=" not in _shim_source(""))
+    check("a pinned image reaches the generated environment",
+          "image='ghcr.io/x:1'" in _shim_source("ghcr.io/x:1"))
+    check("the image is not sent as an override",
+          "image" not in shim.override_kwargs("image=ghcr.io/x:1"))
+
     print()
-    print("%d passed, %d failed" % (15 - len(failures), len(failures)))
+    print("%d passed, %d failed" % (18 - len(failures), len(failures)))
     return 1 if failures else 0
 
 

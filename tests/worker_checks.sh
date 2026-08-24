@@ -111,7 +111,7 @@ echo "== config: a spec becomes a real Flyte task override =="
 out=$(python tests/override_checks.py 2>&1)
 printf '%s\n' "$out" | sed -n 's/^  \(PASS\|FAIL\) /  \1 /p'
 if printf '%s' "$out" | grep -q "0 failed"; then
-  pass=$((pass + 15))
+  pass=$((pass + 18))
 else
   fail=$((fail + 1)); echo "  FAIL override checks"; printf '%s\n' "$out"
 fi
