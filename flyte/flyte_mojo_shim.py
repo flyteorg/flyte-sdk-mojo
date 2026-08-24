@@ -162,6 +162,24 @@ def _reliability(conf, kwargs):
         kwargs["interruptible"] = conf["interruptible"] == "true"
 
 
+def _secrets(conf):
+    """Turn "KEY, OTHER=ENV_NAME" into the list Flyte wants."""
+    declared = conf.get("secrets")
+    if not declared:
+        return None
+    group = conf.get("secret_group") or None
+    secrets = []
+    for entry in declared.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, _, env_var = entry.partition("=")
+        secrets.append(
+            flyte.Secret(key=key.strip(), group=group, as_env_var=(env_var.strip() or None))
+        )
+    return secrets or None
+
+
 def override_kwargs(spec):
     """Turn a spec into keyword arguments for ``TaskTemplate.override``."""
     conf = decode_spec(spec)
@@ -173,6 +191,9 @@ def override_kwargs(spec):
     if cache is not None:
         kwargs["cache"] = cache
     _reliability(conf, kwargs)
+    secrets = _secrets(conf)
+    if secrets is not None:
+        kwargs["secrets"] = secrets
     return kwargs
 
 

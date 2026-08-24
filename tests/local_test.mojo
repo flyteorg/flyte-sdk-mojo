@@ -8,7 +8,7 @@ from std.os import setenv
 
 from flyte import *
 from flyte._bridge import journal_lookup
-from flyte._spec import encode_cache, encode_reliability, encode_resources
+from flyte._spec import encode_cache, encode_reliability, encode_resources, encode_secrets
 from flyte._state import state
 from flyte._wire import from_wire, supported_on_wire, to_wire
 
@@ -222,6 +222,11 @@ def main() raises:
         bounded == "timeout_runtime=1800\ttimeout_queued=900\ttimeout_deadline=7200\t",
         "a Timeout encodes its three bounds",
     )
+
+    comptime no_secrets: String = encode_secrets(Secrets())
+    comptime two: String = encode_secrets(Secrets("A, B=BEE", group="team"))
+    _check(no_secrets == "", "no secrets encodes to nothing")
+    _check(two == "secrets=A, B=BEE\tsecret_group=team\t", "keys and group encode together")
 
     comptime no_cache: String = encode_cache(Cache())
     comptime auto_cache: String = encode_cache(Cache("auto"))
