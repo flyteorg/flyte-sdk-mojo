@@ -6,7 +6,7 @@ code, not an interpreter. ``fib`` is the smallest thing that shows it, and
 back from the cluster.
 
     mojo run fib.mojo
-    FIB_N=200 mojo run fib.mojo    # expect a non-zero exit
+    FIB_N=200 mojo run fib.mojo    # expect three attempts, then a non-zero exit
 """
 from std.os import getenv
 
@@ -25,7 +25,9 @@ def _fib(n: Int) raises -> Int:
     return a
 
 
-comptime env = TaskEnvironment["demo"]()
+# Two retries, so `make fib-fail` shows the cluster genuinely trying again:
+# three attempts, then the original Mojo error.
+comptime env = TaskEnvironment["demo", reliability=Reliability(retries=2, timeout=120)]()
 comptime fib = env.task[f=_fib, name="fib"]()
 
 
@@ -36,6 +38,6 @@ def main() raises:
     # A bad FIB_N raises inside the task; remotely that surfaces as a failed
     # action whose message is the original Mojo error.
     var n = Int(getenv("FIB_N", "90"))
-    var r = run[f=fib, name="demo.fib"](n)
+    var r = env.run[f=fib, name="demo.fib"](n)
     print("fib(" + String(n) + ") =", r.output)
     print("url:", r.url)

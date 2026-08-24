@@ -93,6 +93,8 @@ print(shim.override_kwargs("gpu=2\tgpu_type=A100"))
 print("none:", shim.override_kwargs(""))
 print("cache:", shim.override_kwargs("cache=auto"))
 print("pinned:", shim.override_kwargs("cache=override\tcache_version=v2"))
+print("reliab:", shim.override_kwargs("retries=3\ttimeout_runtime=60\tinterruptible=true"))
+print("paced:", shim.override_kwargs("retries=5\tbackoff_base=10\tbackoff_factor=2.0\tbackoff_cap=300"))
 PY
 )
 check "the later field wins"               "'cpu': '4'" "$spec"
@@ -101,6 +103,9 @@ check "a typed GPU becomes device:count"   "gpu='A100:2'" "$spec"
 check "an empty spec overrides nothing"    "none: \{\}" "$spec"
 check "a bare cache behavior passes through" "cache: \{'cache': 'auto'\}" "$spec"
 check "a pinned cache becomes a Cache"       "version_override='v2'" "$spec"
+check "retries, timeout and interruptible"   "reliab: \{'retries': 3, 'timeout': Timeout\(max_runtime=60" "$spec"
+check "a bare timeout bounds the runtime"    "'timeout': Timeout\(max_runtime=60, max_queued_time=None, deadline=None\), 'interruptible': True" "$spec"
+check "a backoff rides with the retries"     "paced: \{'retries': RetryStrategy\(count=5, backoff=Backoff\(base=datetime\.timedelta\(seconds=10\), factor=2\.0, cap=datetime\.timedelta\(seconds=300\)\)\)" "$spec"
 
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"
