@@ -20,14 +20,14 @@ from ._wire import from_wire
 
 
 def _remote_dispatch[B: Writable & Copyable & Deinitable](
-    fqn: String, run_name: String, args: List[String]
+    fqn: String, run_name: String, spec: String, args: List[String]
 ) raises -> Run[B]:
     """Run action ``fqn`` of the running program on the cluster."""
     var st = state()
     var py_args = Python.list()
     for a in args:
         py_args.append(a)
-    var result = st.remote_run_mojo(fqn, py_args, run_name)
+    var result = st.remote_run_mojo(fqn, py_args, run_name, spec)
     var out = from_wire[B](String(result["output"]))
     return Run[B](
         String(result["name"]), String(result["url"]), String(result["phase"]), out^

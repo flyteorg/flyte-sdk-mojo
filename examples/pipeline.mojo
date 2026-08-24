@@ -6,7 +6,7 @@ Run it and the Flyte UI shows a real action tree, not one opaque box:
     ├─ etl.extract                child action (its own pod)
     │   └─ etl.normalize          trace — an in-process span
     └─ scoring                    a group, named by the code below
-        ├─ etl.score  x4          child actions, fanned out in parallel
+        ├─ etl.score  x4          child actions, in parallel, on 2 CPUs each
         └─ etl.summarize          child action
             └─ etl.grade          trace
 
@@ -89,7 +89,10 @@ def _pipeline(rows: Int) raises -> String:
 
     # everything launched in here lands under "scoring" in the UI
     with group("scoring"):
-        var scores = map[f=score, name="etl.score"](items)   # parallel children
+        # 2 CPUs each, declared where the children are launched
+        var scores = env.map[
+            f=score, name="etl.score", resources_override=Resources(cpu="2", memory="2Gi")
+        ](items)
 
         var total: Int = 0
         for s in scores:
@@ -98,7 +101,8 @@ def _pipeline(rows: Int) raises -> String:
         return summarize(total, len(scores))      # child action
 
 
-comptime env = TaskEnvironment["etl"]()
+# The orchestrator is idle most of its life; the scoring actions are not.
+comptime env = TaskEnvironment["etl", resources=Resources(cpu="1", memory="1Gi")]()
 
 comptime normalize = env.trace[f=_normalize, name="normalize"]()
 comptime grade = env.trace[f=_grade, name="grade"]()
@@ -113,7 +117,9 @@ def main() raises:
     var cfg = init_from_config()
     print("mode:", cfg.mode)
 
-    var r = run[f=pipeline, name="etl.pipeline"](4)
+    # env.run, not run: a root action is launched before its body runs, so
+    # only the environment can say how it should be configured.
+    var r = env.run[f=pipeline, name="etl.pipeline"](4)
     print("run:   ", r.name)
     print("url:   ", r.url)
     print("output:", r.output)

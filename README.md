@@ -210,6 +210,53 @@ OK  task etl.pipeline(4) -> scored 4 items, total=2166116814, grade=warm
 
 Grouping is entirely opt-in — nothing groups your actions for you.
 
+### Configuring an action
+
+How much CPU an action gets, and everything like it, is a *compile-time
+parameter* — binding happens at compile time, so a runtime field could never
+reach it:
+
+```mojo
+comptime env = TaskEnvironment["etl", resources=Resources(cpu="1", memory="1Gi")]()
+
+comptime score = env.task[f=_score, name="score"]()
+
+with group("scoring"):
+    var scores = env.map[
+        f=score, name="etl.score", resources_override=Resources(cpu="2", memory="2Gi")
+    ](items)
+```
+
+The environment sets the default and any call site can override it. On the
+cluster that comes out as:
+
+```
+etl.pipeline     CPU 1 MEMORY 1Gi
+etl.extract      CPU 1 MEMORY 1Gi
+etl.score        CPU 2 MEMORY 2Gi     x4
+etl.summarize    CPU 1 MEMORY 1Gi
+```
+
+The configuration is folded into one string at bind time and travels *with*
+the action — on the launch for a root action, in the `CALL` request for a
+child. Nothing is registered and nothing is parsed out of your source, so a
+task's configuration cannot drift from the task.
+
+Three call sites take an override, and which one you want depends on what is
+being launched:
+
+| | configures |
+|---|---|
+| `env.task[..., resources_override=...]` | that task, when another task calls it |
+| `env.map[..., resources_override=...]` | the children of that fan-out |
+| `env.run[..., resources_override=...]` | the root action of that run |
+
+`env.run` and `env.map` exist because the free `run[...]` and `map[...]` cannot
+see the configuration: a root action is launched before its body ever runs, and
+a fan-out is handed a bound function value whose parameters Mojo cannot inspect.
+Declaring it at the launching call site is the honest version of that
+constraint — and it means a fan-out's configuration sits next to the fan-out.
+
 ### Running the tree without a cluster
 
 ```sh
@@ -312,6 +359,9 @@ remote run uln4wkwlt89745fwxz2x failed (FAILED):
 | `env.trace[f=fn, name="n"]()` | bind a Mojo function as a trace (arity 0–3) |
 | `run[f=bound, name="fqn", run_name=...](args)` | run it — locally or on the cluster |
 | `map[f=bound, name="fqn"](items)` | fan out: one child action per item, in parallel |
+| `Resources(cpu=, memory=, gpu=, gpu_type=)` | what an action needs; empty fields inherit |
+| `env.task[..., resources_override=...]` | configure one task |
+| `env.map[...]` / `env.run[...]` | as `map` / `run`, carrying the environment's configuration |
 | `with group("name"):` | name a region of the workflow (nests; opt-in) |
 | `Run[R].name/.url/.phase/.output` | run identity + typed result |
 | `Run[R].report()` | readable trace of the run (local and remote) |
@@ -379,6 +429,7 @@ because nobody has written it yet, not because Mojo is in the way.
 | grouping | `with flyte.group("n"):` | `with group("n"):` |
 | config and auth | `flyte.init_from_config()` | `init_from_config()` |
 | run context | `flyte.ctx()` | `ctx()` |
+| resources | `Resources(cpu=, memory=, gpu=)` | `TaskEnvironment["e", resources=Resources(...)]`, overridable per task, per fan-out and per run |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
 
@@ -387,7 +438,6 @@ because nobody has written it yet, not because Mojo is in the way.
 | Area | Python | Mojo today |
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
-| **resources** | `Resources(cpu=, memory=, gpu=)` per task | declared on `TaskEnvironment` and ignored — every action gets the cluster default |
 | **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
 | **caching** | `cache="auto"` | none — every action re-runs |
 | **reliability** | `retries=`, `timeout=`, `interruptible=` | none |

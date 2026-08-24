@@ -23,10 +23,11 @@ is. See ``_mode`` for the three roles a program plays.
 from ._config import Config, MODE_LOCAL, MODE_REMOTE, MODE_WORKER, init_from_config, mode
 from ._ctx import Ctx, ctx
 from ._core import run, task, trace
-from ._env import Resources, TaskEnvironment
+from ._env import TaskEnvironment
 from ._group import Group, group
 from ._map import map
 from ._mode import is_worker
 from ._remote import remote_run
 from ._run import Run
+from ._spec import Resources
 from ._wire import from_wire, to_wire

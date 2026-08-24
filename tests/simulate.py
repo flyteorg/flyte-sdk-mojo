@@ -40,10 +40,16 @@ class Sim:
     def _emit(self, depth, text):
         self.lines.append("  " * depth + text)
 
-    def action(self, name, args, journal, depth=0):  # noqa: C901
+    def action(self, name, args, journal, depth=0, spec=""):  # noqa: C901
         """Run one action of the program, servicing what it asks for."""
         self.actions += 1
-        self._emit(depth, "%s(%s)" % (name, ", ".join(args)))
+        label = "%s(%s)" % (name, ", ".join(args))
+        if spec:
+            # what the cluster would have applied, so the tree shows it
+            label += "  {%s}" % ", ".join(
+                "%s=%s" % kv for kv in sorted(shim.decode_spec(spec).items())
+            )
+        self._emit(depth, label)
         proc = subprocess.Popen(
             ["mojo", "run", "-I", ".", self.program, *args],
             stdin=subprocess.PIPE,
@@ -105,18 +111,19 @@ class Sim:
 
             if line.startswith(shim.CALL_MARK):
                 fields = shim._decode_row(line[len(shim.CALL_MARK):])
-                kind, fqn, rest = fields[0], fields[1], fields[2:]
+                kind, fqn, spec, rest = fields[0], fields[1], fields[2], fields[3:]
                 snapshot = list(journal)
                 try:
                     if kind == "map":
                         outputs = [
-                            self.action(fqn, [item], snapshot, depth + 1) for item in rest
+                            self.action(fqn, [item], snapshot, depth + 1, spec)
+                            for item in rest
                         ]
                         for item, out in zip(rest, outputs):
                             journal.append(shim._encode_row([fqn, out, item]))
                         reply = ["OK", *outputs]
                     else:
-                        out = self.action(fqn, list(rest), snapshot, depth + 1)
+                        out = self.action(fqn, list(rest), snapshot, depth + 1, spec)
                         journal.append(shim._encode_row([fqn, out, *rest]))
                         reply = ["OK", out]
                 except Exception as exc:

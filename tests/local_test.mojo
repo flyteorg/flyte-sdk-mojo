@@ -8,6 +8,7 @@ from std.os import setenv
 
 from flyte import *
 from flyte._bridge import journal_lookup
+from flyte._spec import encode_resources
 from flyte._state import state
 from flyte._wire import from_wire, supported_on_wire, to_wire
 
@@ -173,6 +174,22 @@ def main() raises:
     # the group must have been left, or the next run would nest under it
     var r7 = run[f=hello, name="test.hello", run_name="after-group"]("x")
     _check("\n  OK  task test.hello" in r7.report(), "leaving a group unwinds the stack")
+
+    # ------------------------------------------------------------------
+    print("== spec: configuration folded in at compile time ==")
+    comptime empty: String = encode_resources(Resources())
+    comptime cpu_only: String = encode_resources(Resources(cpu="2"))
+    comptime full: String = encode_resources(
+        Resources(cpu="2", memory="4Gi", gpu=1, gpu_type="A100")
+    )
+    _check(empty == "", "an unset Resources encodes to nothing")
+    _check(cpu_only == "cpu=2\t", "a set field encodes as key=value")
+    _check(
+        full == "cpu=2\tmemory=4Gi\tgpu=1\tgpu_type=A100\t",
+        "every set field is encoded, in order",
+    )
+    comptime merged: String = cpu_only + encode_resources(Resources(cpu="8"))
+    _check(merged == "cpu=2\tcpu=8\t", "an override is appended, for the reader to resolve")
 
     # ------------------------------------------------------------------
     print("== journal: results a worker should not recompute ==")

@@ -64,7 +64,7 @@ check "the trace closes it with its output" '__FLYTE_MOJO_SPAN__:end\tn70' "$out
 
 out=$(FLYTE_MOJO_ACTION=j.flow FLYTE_MOJO_PROTOCOL=1 \
       mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
-check "a nested task becomes a child-action request" '__FLYTE_MOJO_CALL__:call\tj.step\t2' "$out"
+check "a nested task becomes a child-action request" '__FLYTE_MOJO_CALL__:call\tj.step\t\t2' "$out"
 
 echo "== worker: groups are opened by the program, never implied =="
 out=$(FLYTE_MOJO_ACTION=j.final FLYTE_MOJO_PROTOCOL=1 \
@@ -76,6 +76,27 @@ count "exactly one group is opened" '__FLYTE_MOJO_GROUP__:begin' 1 "$out"
 # j.step is inside no group at all, so its worker must announce none
 out=$(FLYTE_MOJO_ACTION=j.step FLYTE_MOJO_PROTOCOL=1 mojo run -I . tests/worker_flow.mojo 2>&1 </dev/null)
 refute "an ungrouped action announces no group" '__FLYTE_MOJO_GROUP__' "$out"
+
+echo "== config: what the environment declares reaches the action =="
+export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"
+out=$(python tests/simulate.py tests/worker_config.mojo c.root 3 2>&1)
+check "an override beats the environment setting"  '^  c\.heavy\(3\)  \{cpu=4, memory=1Gi\}$' "$out"
+check "a task with no override inherits it"        '^  c\.light\(3\)  \{cpu=1, memory=1Gi\}$' "$out"
+check "and the workflow still computes"            'output: 10' "$out"
+
+spec=$(python - <<'PY'
+import sys; sys.path.insert(0, "flyte")
+import flyte_mojo_shim as shim
+print(shim.decode_spec("cpu=1\tmemory=1Gi\tcpu=4"))
+print(shim.override_kwargs("cpu=1\tmemory=1Gi\tcpu=4"))
+print(shim.override_kwargs("gpu=2\tgpu_type=A100"))
+print("none:", shim.override_kwargs(""))
+PY
+)
+check "the later field wins"               "'cpu': '4'" "$spec"
+check "which becomes a Flyte Resources"    "Resources\(cpu='4', memory='1Gi'" "$spec"
+check "a typed GPU becomes device:count"   "gpu='A100:2'" "$spec"
+check "an empty spec overrides nothing"    "none: \{\}" "$spec"
 
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"

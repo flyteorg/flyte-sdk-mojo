@@ -5,8 +5,8 @@ it over pipes (``FLYTE_MOJO_PROTOCOL=1``), the worker can ask Flyte to do
 things on its behalf, and the shim answers:
 
     worker ── stdout ──▶ shim      shim ── stdin ──▶ worker
-    CALL  call  fqn args...        OK   result
-    CALL  map   fqn args...        OK   result result ...
+    CALL  call  fqn spec args...   OK   result
+    CALL  map   fqn spec args...   OK   result result ...
     SPAN  begin fqn args...        ERR  message
     SPAN  end   output error
     GROUP begin name
@@ -103,9 +103,13 @@ def _send(mark: String, fields: List[String]):
 # ---------------------------------------------------------------------------
 
 
-def call(fqn: String, args: List[String]) raises -> String:
-    """Run ``fqn`` as a Flyte child action and wait for its result."""
-    var fields: List[String] = ["call", fqn]
+def call(fqn: String, spec: String, args: List[String]) raises -> String:
+    """Run ``fqn`` as a Flyte child action and wait for its result.
+
+    ``spec`` is the action's configuration (see ``_spec``), which the shim
+    turns into a Flyte task override.
+    """
+    var fields: List[String] = ["call", fqn, spec]
     for a in args:
         fields.append(a)
     _send(CALL_MARK, fields)
@@ -115,9 +119,9 @@ def call(fqn: String, args: List[String]) raises -> String:
     return values[0]
 
 
-def map_call(fqn: String, args: List[String]) raises -> List[String]:
+def map_call(fqn: String, spec: String, args: List[String]) raises -> List[String]:
     """Run ``fqn`` once per argument, as parallel child actions."""
-    var fields: List[String] = ["map", fqn]
+    var fields: List[String] = ["map", fqn, spec]
     for a in args:
         fields.append(a)
     _send(CALL_MARK, fields)

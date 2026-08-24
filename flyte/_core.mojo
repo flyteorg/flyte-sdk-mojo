@@ -204,7 +204,7 @@ def _trace3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinit
 # ---------------------------------------------------------------------------
 
 
-def _task0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: String]() raises -> B:
+def _task0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: String, spec: String]() raises -> B:
     if is_worker():
         if claim_target(fqn):
             # this pod was launched to run exactly this action
@@ -212,7 +212,7 @@ def _task0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: 
             return _emit_value[B](mine^)
         var wire: List[String] = []
         if _as_child(fqn):
-            return from_wire[B](call(fqn, wire))
+            return from_wire[B](call(fqn, spec, wire))
         var memo = _memo[B](fqn, wire)
         if memo.found:
             return from_wire[B](memo.value)
@@ -229,7 +229,7 @@ def _task0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: 
     return r^
 
 
-def _task1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, fqn: String](x: A) raises -> B:
+def _task1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, fqn: String, spec: String](x: A) raises -> B:
     if is_worker():
         if claim_target(fqn):
             # this pod was launched to run exactly this action
@@ -237,7 +237,7 @@ def _task1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinita
             return _emit_value[B](mine^)
         var wire: List[String] = [to_wire(x)]
         if _as_child(fqn):
-            return from_wire[B](call(fqn, wire))
+            return from_wire[B](call(fqn, spec, wire))
         var memo = _memo[B](fqn, wire)
         if memo.found:
             return from_wire[B](memo.value)
@@ -254,7 +254,7 @@ def _task1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinita
     return r^
 
 
-def _task2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, fqn: String](x: A, y: C) raises -> B:
+def _task2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, fqn: String, spec: String](x: A, y: C) raises -> B:
     if is_worker():
         if claim_target(fqn):
             # this pod was launched to run exactly this action
@@ -262,7 +262,7 @@ def _task2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinita
             return _emit_value[B](mine^)
         var wire: List[String] = [to_wire(x), to_wire(y)]
         if _as_child(fqn):
-            return from_wire[B](call(fqn, wire))
+            return from_wire[B](call(fqn, spec, wire))
         var memo = _memo[B](fqn, wire)
         if memo.found:
             return from_wire[B](memo.value)
@@ -279,7 +279,7 @@ def _task2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinita
     return r^
 
 
-def _task3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, fqn: String](x: A, y: C, z: D) raises -> B:
+def _task3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, fqn: String, spec: String](x: A, y: C, z: D) raises -> B:
     if is_worker():
         if claim_target(fqn):
             # this pod was launched to run exactly this action
@@ -287,7 +287,7 @@ def _task3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinita
             return _emit_value[B](mine^)
         var wire: List[String] = [to_wire(x), to_wire(y), to_wire(z)]
         if _as_child(fqn):
-            return from_wire[B](call(fqn, wire))
+            return from_wire[B](call(fqn, spec, wire))
         var memo = _memo[B](fqn, wire)
         if memo.found:
             return from_wire[B](memo.value)
@@ -311,7 +311,7 @@ def _task3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinita
 # ---------------------------------------------------------------------------
 
 
-def _run0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: String, run_name: String]() raises -> Run[B]:
+def _run0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: String, run_name: String, spec: String]() raises -> Run[B]:
     if is_worker():
         if claim_target(fqn):
             var r = f()
@@ -322,7 +322,7 @@ def _run0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: S
 
     if mode() == MODE_REMOTE:
         var wire: List[String] = []
-        return _remote_dispatch[B](fqn, run_name, wire)
+        return _remote_dispatch[B](fqn, run_name, spec, wire)
 
     var st = state()
     var name = String(st.run_begin(run_name, fqn, "local", ""))
@@ -337,7 +337,7 @@ def _run0[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, fqn: S
     return Run[B](name, url, "SUCCEEDED", r^)
 
 
-def _run1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, fqn: String, run_name: String](x: A) raises -> Run[B]:
+def _run1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, fqn: String, run_name: String, spec: String](x: A) raises -> Run[B]:
     if is_worker():
         if claim_target(fqn):
             var r = f(_wire_arg[A](0, x))
@@ -348,7 +348,7 @@ def _run1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitab
 
     if mode() == MODE_REMOTE:
         var wire: List[String] = [to_wire(x)]
-        return _remote_dispatch[B](fqn, run_name, wire)
+        return _remote_dispatch[B](fqn, run_name, spec, wire)
 
     var st = state()
     var name = String(st.run_begin(run_name, fqn, "local", ""))
@@ -363,7 +363,7 @@ def _run1[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitab
     return Run[B](name, url, "SUCCEEDED", r^)
 
 
-def _run2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, fqn: String, run_name: String](x: A, y: C) raises -> Run[B]:
+def _run2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, fqn: String, run_name: String, spec: String](x: A, y: C) raises -> Run[B]:
     if is_worker():
         if claim_target(fqn):
             var r = f(_wire_arg[A](0, x), _wire_arg[C](1, y))
@@ -374,7 +374,7 @@ def _run2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitab
 
     if mode() == MODE_REMOTE:
         var wire: List[String] = [to_wire(x), to_wire(y)]
-        return _remote_dispatch[B](fqn, run_name, wire)
+        return _remote_dispatch[B](fqn, run_name, spec, wire)
 
     var st = state()
     var name = String(st.run_begin(run_name, fqn, "local", ""))
@@ -389,7 +389,7 @@ def _run2[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitab
     return Run[B](name, url, "SUCCEEDED", r^)
 
 
-def _run3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, fqn: String, run_name: String](x: A, y: C, z: D) raises -> Run[B]:
+def _run3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, fqn: String, run_name: String, spec: String](x: A, y: C, z: D) raises -> Run[B]:
     if is_worker():
         if claim_target(fqn):
             var r = f(_wire_arg[A](0, x), _wire_arg[C](1, y), _wire_arg[D](2, z))
@@ -400,7 +400,7 @@ def _run3[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitab
 
     if mode() == MODE_REMOTE:
         var wire: List[String] = [to_wire(x), to_wire(y), to_wire(z)]
-        return _remote_dispatch[B](fqn, run_name, wire)
+        return _remote_dispatch[B](fqn, run_name, spec, wire)
 
     var st = state()
     var name = String(st.run_begin(run_name, fqn, "local", ""))
@@ -436,33 +436,33 @@ def trace[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitab
     return _trace3[f=f, fqn=name]
 
 
-def task[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String]() -> def() raises thin -> B:
-    return _task0[f=f, fqn=name]
+def task[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, spec: String = ""]() -> def() raises thin -> B:
+    return _task0[f=f, fqn=name, spec=spec]
 
 
-def task[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String]() -> def(x: A) raises thin -> B:
-    return _task1[f=f, fqn=name]
+def task[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, spec: String = ""]() -> def(x: A) raises thin -> B:
+    return _task1[f=f, fqn=name, spec=spec]
 
 
-def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String]() -> def(x: A, y: C) raises thin -> B:
-    return _task2[f=f, fqn=name]
+def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, spec: String = ""]() -> def(x: A, y: C) raises thin -> B:
+    return _task2[f=f, fqn=name, spec=spec]
 
 
-def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String]() -> def(x: A, y: C, z: D) raises thin -> B:
-    return _task3[f=f, fqn=name]
+def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, spec: String = ""]() -> def(x: A, y: C, z: D) raises thin -> B:
+    return _task3[f=f, fqn=name, spec=spec]
 
 
-def run[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, run_name: String = ""]() raises -> Run[B]:
-    return _run0[f=f, fqn=name, run_name=run_name]()
+def run[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, run_name: String = "", spec: String = ""]() raises -> Run[B]:
+    return _run0[f=f, fqn=name, run_name=run_name, spec=spec]()
 
 
-def run[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, run_name: String = ""](x: A) raises -> Run[B]:
-    return _run1[f=f, fqn=name, run_name=run_name](x)
+def run[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, run_name: String = "", spec: String = ""](x: A) raises -> Run[B]:
+    return _run1[f=f, fqn=name, run_name=run_name, spec=spec](x)
 
 
-def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, run_name: String = ""](x: A, y: C) raises -> Run[B]:
-    return _run2[f=f, fqn=name, run_name=run_name](x, y)
+def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, run_name: String = "", spec: String = ""](x: A, y: C) raises -> Run[B]:
+    return _run2[f=f, fqn=name, run_name=run_name, spec=spec](x, y)
 
 
-def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, run_name: String = ""](x: A, y: C, z: D) raises -> Run[B]:
-    return _run3[f=f, fqn=name, run_name=run_name](x, y, z)
+def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, run_name: String = "", spec: String = ""](x: A, y: C, z: D) raises -> Run[B]:
+    return _run3[f=f, fqn=name, run_name=run_name, spec=spec](x, y, z)

@@ -24,6 +24,7 @@ def map[
     B: Writable & Copyable & Deinitable,
     f: def(A) raises thin -> B,
     name: String,
+    spec: String = "",
 ](items: List[A]) raises -> List[B]:
     """Apply the bound task ``f`` to every item, in parallel when remote."""
     if is_worker():
@@ -31,7 +32,7 @@ def map[
             var wire = List[String]()
             for item in items:
                 wire.append(to_wire(item))
-            var raw = map_call(name, wire)
+            var raw = map_call(name, spec, wire)
             var out = List[B]()
             for value in raw:
                 out.append(from_wire[B](value))
