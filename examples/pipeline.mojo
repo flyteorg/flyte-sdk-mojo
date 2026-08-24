@@ -89,9 +89,14 @@ def _pipeline(rows: Int) raises -> String:
 
     # everything launched in here lands under "scoring" in the UI
     with group("scoring"):
-        # 2 CPUs each, declared where the children are launched
+        # 2 CPUs each, declared where the children are launched. Scoring is
+        # deterministic and the slowest thing here, so cache it: run this
+        # twice and the second run reuses these four results.
         var scores = env.map[
-            f=score, name="etl.score", resources_override=Resources(cpu="2", memory="2Gi")
+            f=score,
+            name="etl.score",
+            resources_override=Resources(cpu="2", memory="2Gi"),
+            cache_override=Cache("auto"),
         ](items)
 
         var total: Int = 0

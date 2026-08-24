@@ -111,6 +111,16 @@ def _resources(conf):
     return flyte.Resources(cpu=cpu, memory=memory, gpu=device)
 
 
+def _cache(conf):
+    behavior = conf.get("cache")
+    if not behavior:
+        return None
+    version, salt = conf.get("cache_version"), conf.get("cache_salt")
+    if not (version or salt):
+        return behavior  # Flyte takes the bare literal
+    return flyte.Cache(behavior=behavior, version_override=version, salt=salt or "")
+
+
 def override_kwargs(spec):
     """Turn a spec into keyword arguments for ``TaskTemplate.override``."""
     conf = decode_spec(spec)
@@ -118,6 +128,9 @@ def override_kwargs(spec):
     resources = _resources(conf)
     if resources is not None:
         kwargs["resources"] = resources
+    cache = _cache(conf)
+    if cache is not None:
+        kwargs["cache"] = cache
     return kwargs
 
 
