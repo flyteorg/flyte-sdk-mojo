@@ -36,6 +36,25 @@ struct Resources(ImplicitlyCopyable, Movable):
         self.gpu_type = gpu_type
 
 
+struct Cache(ImplicitlyCopyable, Movable):
+    """Whether to reuse a previous result for the same inputs.
+
+    ``behavior`` is Flyte's: "auto" caches on the inputs and the task version,
+    "override" recomputes once and replaces what was cached, "disable" is the
+    default. ``version`` pins the cache key yourself, so you can invalidate a
+    cache by changing it; ``salt`` separates otherwise identical entries.
+    """
+
+    var behavior: String
+    var version: String
+    var salt: String
+
+    def __init__(out self, behavior: String = "", *, version: String = "", salt: String = ""):
+        self.behavior = behavior
+        self.version = version
+        self.salt = salt
+
+
 def field(key: String, value: String) -> String:
     """One ``key=value`` field, or nothing at all when the value is unset.
 
@@ -64,6 +83,14 @@ def field_bool(key: String, value: Bool, unset: Bool = False) -> String:
 def _escape(value: String) -> String:
     """Keep a value on one field: the spec is tab-separated, one line."""
     return value.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+
+
+def encode_cache(c: Cache) -> String:
+    return (
+        field("cache", c.behavior)
+        + field("cache_version", c.version)
+        + field("cache_salt", c.salt)
+    )
 
 
 def encode_resources(r: Resources) -> String:

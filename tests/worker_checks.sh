@@ -91,12 +91,16 @@ print(shim.decode_spec("cpu=1\tmemory=1Gi\tcpu=4"))
 print(shim.override_kwargs("cpu=1\tmemory=1Gi\tcpu=4"))
 print(shim.override_kwargs("gpu=2\tgpu_type=A100"))
 print("none:", shim.override_kwargs(""))
+print("cache:", shim.override_kwargs("cache=auto"))
+print("pinned:", shim.override_kwargs("cache=override\tcache_version=v2"))
 PY
 )
 check "the later field wins"               "'cpu': '4'" "$spec"
 check "which becomes a Flyte Resources"    "Resources\(cpu='4', memory='1Gi'" "$spec"
 check "a typed GPU becomes device:count"   "gpu='A100:2'" "$spec"
 check "an empty spec overrides nothing"    "none: \{\}" "$spec"
+check "a bare cache behavior passes through" "cache: \{'cache': 'auto'\}" "$spec"
+check "a pinned cache becomes a Cache"       "version_override='v2'" "$spec"
 
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"

@@ -430,6 +430,7 @@ because nobody has written it yet, not because Mojo is in the way.
 | config and auth | `flyte.init_from_config()` | `init_from_config()` |
 | run context | `flyte.ctx()` | `ctx()` |
 | resources | `Resources(cpu=, memory=, gpu=)` | `TaskEnvironment["e", resources=Resources(...)]`, overridable per task, per fan-out and per run |
+| caching | `cache="auto"` | `Cache("auto")`, or pinned with `version=` / `salt=` |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
 
@@ -439,7 +440,6 @@ because nobody has written it yet, not because Mojo is in the way.
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
 | **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
-| **caching** | `cache="auto"` | none — every action re-runs |
 | **reliability** | `retries=`, `timeout=`, `interruptible=` | none |
 | **secrets** | `Secret` | none |
 | **container reuse** | `ReusePolicy` | none — one pod per action |
