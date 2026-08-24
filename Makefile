@@ -1,4 +1,4 @@
-.PHONY: hello agent fib fib-fail pipeline resume python-task simulate test test-worker local clean clean-build
+.PHONY: hello agent fib fib-fail pipeline resume python-task inspect simulate test test-worker local clean clean-build
 
 # Examples live in examples/ and the SDK in flyte/, so Mojo needs -I . to
 # resolve `from flyte import *`. Run these from the repo root.
@@ -24,6 +24,9 @@ fib-fail:                       ## failure path: the Mojo error comes back from 
 
 python-task:                    ## escape hatch: drive an existing Python task
 	$(MOJO) examples/python_task.mojo
+
+inspect:                        ## ask the cluster about work it has already done
+	$(MOJO) examples/inspect.mojo
 
 local:                          ## run the examples in-process, ignoring any cluster config
 	HOME=$$(mktemp -d) $(MOJO) examples/hello.mojo

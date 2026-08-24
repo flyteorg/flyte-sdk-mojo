@@ -130,6 +130,9 @@ check "the simulator services it and the work runs" 'evicted at step 5' "$out"
 out=$(HOME=$(mktemp -d) mojo run -I . examples/resume.mojo 2>&1)
 check "locally the checkpoint carries across a retry" 'resuming from step 5' "$out"
 check "so the second attempt finishes the work"       'steps completed: 10' "$out"
+echo "== control plane: refused from inside an action =="
+out=$(FLYTE_MOJO_ACTION=cp.probe mojo run -I . tests/worker_control.mojo 2>&1 </dev/null)
+check "all five calls raise in a worker" '__FLYTE_MOJO_OUTPUT__:refused=5' "$out"
 
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"

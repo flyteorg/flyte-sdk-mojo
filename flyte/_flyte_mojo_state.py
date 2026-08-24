@@ -475,6 +475,72 @@ def remote_run(file, task, args):
 
 
 # --------------------------------------------------------------------------
+# Control plane: asking the cluster about work, rather than giving it work
+# --------------------------------------------------------------------------
+
+def _phase_name(value):
+    return getattr(value, "name", None) or str(value)
+
+
+def _run_row(run):
+    return [run.name, _phase_name(run.phase), run.url or ""]
+
+
+def cp_runs(limit):
+    """Recent runs, newest first, as [name, phase, url] rows."""
+    import flyte.remote as remote
+
+    _pyflyte()
+    return [_run_row(run) for run in remote.Run.listall(limit=int(limit))]
+
+
+def cp_status(name):
+    """One run's current state."""
+    import flyte.remote as remote
+
+    _pyflyte()
+    run = remote.Run.get(name=name)
+    run.sync()
+    return _run_row(run)
+
+
+def cp_abort(name):
+    """Stop a run and everything under it. Aborting a finished run is a no-op."""
+    import flyte.remote as remote
+
+    _pyflyte()
+    run = remote.Run.get(name=name)
+    run.abort()
+    run.sync()
+    return _run_row(run)
+
+
+def cp_logs(name, lines):
+    """The tail of a run's logs, as one string."""
+    import flyte.remote as remote
+
+    _pyflyte()
+    run = remote.Run.get(name=name)
+    collected = []
+    try:
+        stream = run.get_logs(max_lines=int(lines))
+    except TypeError:
+        stream = run.get_logs()
+    for chunk in stream:
+        text = chunk if isinstance(chunk, str) else str(chunk)
+        # Chunks arrive one log line at a time, without their newline.
+        collected.extend(text.splitlines() or [text])
+    return "\n".join(collected[-int(lines):] if lines else collected)
+
+
+def cp_rerun(name):
+    """Run the same task again with the same inputs."""
+    pyflyte = _pyflyte()
+    run = pyflyte.rerun(run_name=name)
+    return _run_row(run)
+
+
+# --------------------------------------------------------------------------
 # Compiled-Mojo remote execution
 #
 # The user writes one .mojo file. To run one of its actions on the cluster
