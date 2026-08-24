@@ -20,6 +20,9 @@ SPEC = "\t".join([
     "secrets=OPENAI_API_KEY, DB_PASS=DATABASE_PASSWORD", "secret_group=team",
 ])
 
+# Reuse cannot be combined with resources, so it is checked on its own.
+REUSE_SPEC = "reuse_replicas=2\treuse_idle_ttl=60\treuse_scope=run"
+
 env = flyte.TaskEnvironment(name="probe")
 
 
@@ -59,8 +62,22 @@ def main():
           getattr(probe, "resources", None))
     check("an empty spec returns the task itself", shim.configured(probe, "") is probe)
 
+    warm = shim.configured(probe, REUSE_SPEC)
+    reuse = getattr(warm, "reusable", None)
+    check("a reuse policy reaches the template", getattr(reuse, "replicas", None) == (2, 2), reuse)
+    check("its idle ttl and scope come with it",
+          getattr(reuse, "scope", None) == "run" and getattr(reuse, "idle_ttl", None) is not None, reuse)
+    check("no reuse policy unless replicas are asked for",
+          shim.override_kwargs("reuse_idle_ttl=60").get("reusable") is None)
+
+    try:
+        shim.override_kwargs("cpu=2\t" + REUSE_SPEC)
+        check("combining resources and reuse is refused", False, "no error raised")
+    except ValueError as exc:
+        check("combining resources and reuse is refused", "cannot combine" in str(exc), exc)
+
     print()
-    print("%d passed, %d failed" % (11 - len(failures), len(failures)))
+    print("%d passed, %d failed" % (15 - len(failures), len(failures)))
     return 1 if failures else 0
 
 

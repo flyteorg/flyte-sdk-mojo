@@ -165,6 +165,32 @@ struct Secrets(ImplicitlyCopyable, Movable):
         self.group = group
 
 
+struct Reuse(ImplicitlyCopyable, Movable):
+    """Keep containers alive between actions instead of one pod per action.
+
+    Pod startup dominates any action that does less than a few seconds of
+    work — a fan-out of short tasks spends most of its wall clock waiting for
+    containers. A reuse policy keeps ``replicas`` of them warm and hands them
+    the next action instead.
+
+    ``replicas`` greater than zero turns it on. ``idle_ttl`` is how long a
+    warm container waits for more work, in seconds; ``concurrency`` is how
+    many actions one container takes at a time; ``scope`` is "global" to share
+    across runs or "run" to keep them to one.
+    """
+
+    var replicas: Int
+    var idle_ttl: Int
+    var concurrency: Int
+    var scope: String
+
+    def __init__(out self, *, replicas: Int = 0, idle_ttl: Int = 0, concurrency: Int = 0, scope: String = ""):
+        self.replicas = replicas
+        self.idle_ttl = idle_ttl
+        self.concurrency = concurrency
+        self.scope = scope
+
+
 def field(key: String, value: String) -> String:
     """One ``key=value`` field, or nothing at all when the value is unset.
 
@@ -220,6 +246,15 @@ def encode_reliability(r: Reliability) -> String:
 
 def encode_secrets(s: Secrets) -> String:
     return field("secrets", s.keys) + field("secret_group", s.group)
+
+
+def encode_reuse(r: Reuse) -> String:
+    return (
+        field_int("reuse_replicas", r.replicas)
+        + field_int("reuse_idle_ttl", r.idle_ttl)
+        + field_int("reuse_concurrency", r.concurrency)
+        + field("reuse_scope", r.scope)
+    )
 
 
 def encode_resources(r: Resources) -> String:

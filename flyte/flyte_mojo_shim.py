@@ -180,6 +180,20 @@ def _secrets(conf):
     return secrets or None
 
 
+def _reuse(conf):
+    replicas = conf.get("reuse_replicas")
+    if not replicas:
+        return None
+    policy = {"replicas": int(replicas)}
+    if conf.get("reuse_idle_ttl"):
+        policy["idle_ttl"] = int(conf["reuse_idle_ttl"])
+    if conf.get("reuse_concurrency"):
+        policy["concurrency"] = int(conf["reuse_concurrency"])
+    if conf.get("reuse_scope"):
+        policy["scope"] = conf["reuse_scope"]
+    return flyte.ReusePolicy(**policy)
+
+
 def override_kwargs(spec):
     """Turn a spec into keyword arguments for ``TaskTemplate.override``."""
     conf = decode_spec(spec)
@@ -194,6 +208,20 @@ def override_kwargs(spec):
     secrets = _secrets(conf)
     if secrets is not None:
         kwargs["secrets"] = secrets
+    reuse = _reuse(conf)
+    if reuse is not None:
+        if "resources" in kwargs:
+            # Flyte rejects this deep inside override(); say it in the SDK's
+            # own terms, because the two settings usually come from different
+            # places — resources from the environment, Reuse from a call site.
+            raise ValueError(
+                "flyte: an action cannot combine Resources with Reuse. A "
+                "reusable container already has the resources of the pool it "
+                "belongs to, so Flyte will not let a task override them. "
+                "Drop the Reuse(...), or drop the resources from the "
+                "environment and every call site that reaches this action."
+            )
+        kwargs["reusable"] = reuse
     return kwargs
 
 
