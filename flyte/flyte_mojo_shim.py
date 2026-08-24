@@ -9,8 +9,8 @@ TaskEnvironment and calls ``drive`` here.
 run and speaks the control protocol in ``flyte/_bridge.mojo`` over pipes, so
 the Mojo program can ask for real Flyte work while it runs:
 
-    CALL call fqn args...   ->  a child action (a new pod, same binary)
-    CALL map  fqn args...   ->  one child action per argument, in parallel
+    CALL call fqn spec args -> a child action (a new pod, same binary)
+    CALL map  fqn spec args -> one child action per argument, in parallel
     SPAN begin fqn args...  ->  open a flyte.trace context
     SPAN end   output error ->  close it
     GROUP begin name        ->  open a flyte.group context
@@ -83,6 +83,50 @@ def _encode_row(fields):
     return "\t".join(_escape(str(f)) for f in fields)
 
 
+# --------------------------------------------------------------------------
+# Task configuration — the other half of flyte/_spec.mojo
+# --------------------------------------------------------------------------
+
+def decode_spec(spec):
+    """Parse a task spec into a dict. Later fields win, so a task override
+    beats the environment setting it was appended to."""
+    conf = {}
+    for field in (spec or "").split("\t"):
+        if not field:
+            continue
+        key, _, value = field.partition("=")
+        conf[key] = _unescape(value)
+    return conf
+
+
+def _resources(conf):
+    cpu, memory, gpu = conf.get("cpu"), conf.get("memory"), conf.get("gpu")
+    if not (cpu or memory or gpu):
+        return None
+    device = None
+    if gpu:
+        gpu_type = conf.get("gpu_type")
+        # Flyte takes a bare count, or "<device>:<count>" when a type is named.
+        device = "%s:%s" % (gpu_type, gpu) if gpu_type else int(gpu)
+    return flyte.Resources(cpu=cpu, memory=memory, gpu=device)
+
+
+def override_kwargs(spec):
+    """Turn a spec into keyword arguments for ``TaskTemplate.override``."""
+    conf = decode_spec(spec)
+    kwargs = {}
+    resources = _resources(conf)
+    if resources is not None:
+        kwargs["resources"] = resources
+    return kwargs
+
+
+def configured(task, spec):
+    """``task`` with its spec applied — or unchanged, when there is none."""
+    kwargs = override_kwargs(spec)
+    return task.override(**kwargs) if kwargs else task
+
+
 def identifier(text):
     """A Python identifier derived from an action FQN ("demo.hello")."""
     name = re.sub(r"\W", "_", text).strip("_") or "action"
@@ -128,8 +172,8 @@ class _Run:
 async def drive(here, action, args, dispatch, journal=()):
     """Run ``action`` of the bundled Mojo binary, servicing what it asks for.
 
-    ``dispatch(fqn, args, journal)`` returns an awaitable that runs ``fqn`` as
-    a child action; the generated shim maps each known action to its own named
+    ``dispatch(fqn, args, journal, spec)`` returns an awaitable that runs
+    ``fqn`` as a child action with that configuration applied; the generated shim maps each known action to its own named
     Flyte task and falls back to a generic one for anything it did not
     discover. ``journal`` carries results already computed for this run.
     """
@@ -245,18 +289,18 @@ async def _service_call(run, fields):
     Nothing here opens a group: a child action belongs to whatever group the
     program itself opened with ``with group(...)``, or to none.
     """
-    kind, fqn, rest = fields[0], fields[1], fields[2:]
+    kind, fqn, spec, rest = fields[0], fields[1], fields[2], fields[3:]
     snapshot = list(run.journal)
     try:
         if kind == "map":
             outputs = await asyncio.gather(
-                *(run.dispatch(fqn, [item], snapshot) for item in rest)
+                *(run.dispatch(fqn, [item], snapshot, spec) for item in rest)
             )
             for item, output in zip(rest, outputs):
                 run.journal.append(_encode_row([fqn, output, item]))
             reply = ["OK", *outputs]
         else:
-            output = await run.dispatch(fqn, list(rest), snapshot)
+            output = await run.dispatch(fqn, list(rest), snapshot, spec)
             run.journal.append(_encode_row([fqn, output, *rest]))
             reply = ["OK", output]
     except Exception as exc:
