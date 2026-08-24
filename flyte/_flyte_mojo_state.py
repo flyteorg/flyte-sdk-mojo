@@ -117,6 +117,26 @@ def action_finish(output, error):
 
 
 # --------------------------------------------------------------------------
+# Checkpoints (local mode)
+#
+# There are no attempts in a local run, so this is a single slot that lives
+# for the length of the process: enough to exercise the code path, not
+# durable. In a worker the shim persists them through Flyte instead.
+# --------------------------------------------------------------------------
+
+_CHECKPOINT = {"data": ""}
+
+
+def checkpoint_save(text):
+    _CHECKPOINT["data"] = text
+    return ""
+
+
+def checkpoint_load():
+    return _CHECKPOINT["data"]
+
+
+# --------------------------------------------------------------------------
 # Groups: a named region of a run, recorded as a level in the report
 # --------------------------------------------------------------------------
 

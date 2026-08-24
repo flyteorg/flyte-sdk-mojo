@@ -11,6 +11,8 @@ things on its behalf, and the shim answers:
     SPAN  end   output error
     GROUP begin name
     GROUP end
+    CKPT  save text                OK
+    CKPT  load                     OK   text
     OUTPUT value
 
 ``call`` becomes a Flyte child action (a new pod running this same binary);
@@ -33,6 +35,7 @@ comptime JOURNAL_ENV: String = "FLYTE_MOJO_JOURNAL"
 comptime CALL_MARK: String = "__FLYTE_MOJO_CALL__:"
 comptime SPAN_MARK: String = "__FLYTE_MOJO_SPAN__:"
 comptime GROUP_MARK: String = "__FLYTE_MOJO_GROUP__:"
+comptime CKPT_MARK: String = "__FLYTE_MOJO_CKPT__:"
 
 
 def protocol_active() -> Bool:
@@ -203,3 +206,18 @@ def journal_lookup(fqn: String, args: List[String]) -> Memo:
         if same:
             return Memo(True, fields[1])
     return Memo(False, String(""))
+
+
+def checkpoint_save(text: String) raises:
+    """Hand the shim a checkpoint to persist for the next attempt."""
+    var fields: List[String] = ["save", text]
+    _send(CKPT_MARK, fields)
+    _ = _reply()
+
+
+def checkpoint_load() raises -> String:
+    """The checkpoint a previous attempt left, or "" if this is the first."""
+    var fields: List[String] = ["load"]
+    _send(CKPT_MARK, fields)
+    var values = _reply()
+    return values[0] if len(values) > 0 else String("")

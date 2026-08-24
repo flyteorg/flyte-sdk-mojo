@@ -15,6 +15,8 @@ the Mojo program can ask for real Flyte work while it runs:
     SPAN end   output error ->  close it
     GROUP begin name        ->  open a flyte.group context
     GROUP end               ->  close it
+    CKPT  save text         ->  persist it for the next attempt
+    CKPT  load              ->  what the previous attempt left
     OUTPUT value            ->  the action's result
 
 Because the trace context is held open for exactly as long as the Mojo code
@@ -39,6 +41,7 @@ OUTPUT_MARK = "__FLYTE_MOJO_OUTPUT__:"
 CALL_MARK = "__FLYTE_MOJO_CALL__:"
 SPAN_MARK = "__FLYTE_MOJO_SPAN__:"
 GROUP_MARK = "__FLYTE_MOJO_GROUP__:"
+CKPT_MARK = "__FLYTE_MOJO_CKPT__:"
 
 # Lines the Mojo runtime always prints, which say nothing about a failure.
 _NOISE = ("stack trace was not collected",)
@@ -356,6 +359,12 @@ async def _pump(run):
             await _service_call(run, _decode_row(line[len(CALL_MARK):]))
             continue
 
+        if line.startswith(CKPT_MARK):
+            await asyncio.to_thread(
+                _service_checkpoint, run, _decode_row(line[len(CKPT_MARK):])
+            )
+            continue
+
         if line.startswith(GROUP_MARK):
             fields = _decode_row(line[len(GROUP_MARK):])
             if fields[0] == "begin":
@@ -409,6 +418,33 @@ async def _service_call(run, fields):
             reply = ["OK", output]
     except Exception as exc:
         reply = ["ERR", "%s: %s" % (fqn, exc)]
+    run.proc.stdin.write(_encode_row(reply) + "\n")
+    run.proc.stdin.flush()
+
+
+def _checkpoint():
+    """This action's checkpoint, or None when the cluster gave it no paths."""
+    paths = getattr(flyte.ctx(), "checkpoint_paths", None)
+    if not paths or not getattr(paths, "checkpoint_path", None):
+        return None
+    return flyte.Checkpoint(paths.checkpoint_path, paths.prev_checkpoint_path)
+
+
+def _service_checkpoint(run, fields):
+    """Save or load a checkpoint on the worker's behalf."""
+    try:
+        checkpoint = _checkpoint()
+        if checkpoint is None:
+            reply = ["OK", ""] if fields[0] == "load" else ["OK"]
+        elif fields[0] == "save":
+            # bytes, not str: save_sync treats a str as a path to copy
+            checkpoint.save_sync((fields[1] if len(fields) > 1 else "").encode())
+            reply = ["OK"]
+        else:
+            previous = checkpoint.load_sync() if checkpoint.prev_exists() else None
+            reply = ["OK", previous.read_text() if previous else ""]
+    except Exception as exc:
+        reply = ["ERR", "checkpoint: %s" % exc]
     run.proc.stdin.write(_encode_row(reply) + "\n")
     run.proc.stdin.flush()
 

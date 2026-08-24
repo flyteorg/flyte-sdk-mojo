@@ -340,6 +340,7 @@ needs no flag at all.
 ```sh
 make hello        # or fib / pipeline / agent / python-task
 make fib-fail     # a Mojo error from inside the pod, back in your terminal
+make resume       # a task that fails once and resumes from its checkpoint
 make simulate     # the whole multi-action tree locally, no cluster
 make local        # run the examples in-process, ignoring any cluster config
 make test         # 53 local checks + 25 worker/protocol checks
@@ -367,6 +368,7 @@ remote run uln4wkwlt89745fwxz2x failed (FAILED):
 | `env.task[..., resources_override=...]` | configure one task |
 | `env.map[...]` / `env.run[...]` | as `map` / `run`, carrying the environment's configuration |
 | `with group("name"):` | name a region of the workflow (nests; opt-in) |
+| `checkpoint_save(text)` / `checkpoint_load()` | state that survives a failed attempt |
 | `Run[R].name/.url/.phase/.output` | run identity + typed result |
 | `Run[R].report()` | readable trace of the run (local and remote) |
 | `ctx()` | current run context inside a task/trace |
@@ -439,6 +441,7 @@ because nobody has written it yet, not because Mojo is in the way.
 | secrets | `Secret(key=, as_env_var=)` | `Secrets("KEY, OTHER=ENV_NAME", group=)` |
 | container reuse | `ReusePolicy` | `Reuse(replicas=, idle_ttl=, concurrency=, scope=)` — see the note below |
 | images | `Image`, dependency specs | `TaskEnvironment["e", image="ghcr.io/..."]` — one per program |
+| checkpoints | `flyte.Checkpoint` | `checkpoint_save(text)` / `checkpoint_load()` |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
 
@@ -471,7 +474,6 @@ enabled there. The policy is asserted onto a real `TaskTemplate` by
 | **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
 | **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
 | **control plane** | `flyte.remote`: list, abort, logs, rerun | launch, wait, fetch the output |
-| **checkpoints** | `flyte.Checkpoint` | none |
 | **concurrency** | `asyncio.gather` over anything | `map` over one list; everything else is sequential |
 | **deployment** | `flyte deploy`, registered reusable tasks | run-only; nothing is registered for others to call |
 

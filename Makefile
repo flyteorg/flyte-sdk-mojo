@@ -1,4 +1,4 @@
-.PHONY: hello agent fib fib-fail pipeline python-task simulate test test-worker local clean clean-build
+.PHONY: hello agent fib fib-fail pipeline resume python-task simulate test test-worker local clean clean-build
 
 # Examples live in examples/ and the SDK in flyte/, so Mojo needs -I . to
 # resolve `from flyte import *`. Run these from the repo root.
@@ -16,6 +16,9 @@ fib:
 pipeline:                       ## multi-action workflow: extract -> fan-out -> summarize
 	$(MOJO) examples/pipeline.mojo
 
+resume:                         ## a task that fails once and resumes from its checkpoint
+	$(MOJO) examples/resume.mojo
+
 fib-fail:                       ## failure path: the Mojo error comes back from the cluster
 	FIB_N=200 $(MOJO) examples/fib.mojo
 
@@ -26,6 +29,7 @@ local:                          ## run the examples in-process, ignoring any clu
 	HOME=$$(mktemp -d) $(MOJO) examples/hello.mojo
 	HOME=$$(mktemp -d) $(MOJO) examples/pipeline.mojo
 	HOME=$$(mktemp -d) $(MOJO) examples/agent.mojo
+	HOME=$$(mktemp -d) $(MOJO) examples/resume.mojo
 
 simulate:                       ## the multi-action tree, one process per action, no cluster
 	FLYTE_MOJO_SIM_HOME=$$(mktemp -d) python tests/simulate.py examples/pipeline.mojo etl.pipeline 4
