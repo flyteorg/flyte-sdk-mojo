@@ -477,14 +477,18 @@ enabled there. The policy is asserted onto a real `TaskTemplate` by
 | Area | Python | Mojo today |
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
-| **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
-| **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
 | **concurrency** | `asyncio.gather` over anything | `map` over one list; everything else is sequential |
-| **deployment** | `flyte deploy`, registered reusable tasks | run-only; nothing is registered for others to call |
+| **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
+| **deployment and scheduling** | `flyte deploy`, `Cron`, `Trigger` | run-only — nothing is registered, so nothing can be scheduled or called by anyone else |
 
-The gap that constrains the *design* rather than the feature list is the first
-one: values crossing an action boundary have to survive a string round-trip
-(`flyte/_wire.mojo`). Everything below it is additive work.
+These four are not a missing afternoon's work, and
+[docs/design-notes.md](docs/design-notes.md) says what each would actually
+take — including the Mojo limitations behind two of them, with the compiler
+errors that establish them. The short version: files and directories are cheap
+and worth doing next, deployment would let anything else call a Mojo task,
+serving is the only one that would make this *faster* rather than more
+complete, and heterogeneous concurrency needs Mojo function values to be
+storable before it can be built without breaking local/remote parity.
 
 ### Reaching Python when you need it
 
