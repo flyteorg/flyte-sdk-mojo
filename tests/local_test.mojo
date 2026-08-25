@@ -8,7 +8,7 @@ from std.os import setenv
 
 from flyte import *
 from flyte._bridge import journal_lookup
-from flyte._spec import encode_cache, encode_resources
+from flyte._spec import encode_cache, encode_reliability, encode_resources
 from flyte._state import state
 from flyte._wire import from_wire, supported_on_wire, to_wire
 
@@ -190,6 +190,38 @@ def main() raises:
     )
     comptime merged: String = cpu_only + encode_resources(Resources(cpu="8"))
     _check(merged == "cpu=2\tcpu=8\t", "an override is appended, for the reader to resolve")
+
+    comptime steady: String = encode_reliability(Reliability())
+    comptime flaky: String = encode_reliability(
+        Reliability(retries=3, timeout=60, interruptible=True)
+    )
+    _check(steady == "", "reliability is inherited unless asked for")
+    _check(
+        flaky == "retries=3\ttimeout_runtime=60\tinterruptible=true\t",
+        "a bare retries and timeout encode as a count and a max_runtime",
+    )
+    _check(
+        encode_reliability(Reliability(interruptible=False)) == "",
+        "False means inherit, not force-off",
+    )
+    comptime paced: String = encode_reliability(
+        Reliability(
+            retries=RetryStrategy(count=5, backoff=Backoff(base=10, factor=2.0, cap=300))
+        )
+    )
+    _check(
+        paced == "retries=5\tbackoff_base=10\tbackoff_factor=2.0\tbackoff_cap=300\t",
+        "a RetryStrategy carries its Backoff",
+    )
+    comptime bounded: String = encode_reliability(
+        Reliability(
+            timeout=Timeout(max_runtime=1800, max_queued_time=900, deadline=7200)
+        )
+    )
+    _check(
+        bounded == "timeout_runtime=1800\ttimeout_queued=900\ttimeout_deadline=7200\t",
+        "a Timeout encodes its three bounds",
+    )
 
     comptime no_cache: String = encode_cache(Cache())
     comptime auto_cache: String = encode_cache(Cache("auto"))

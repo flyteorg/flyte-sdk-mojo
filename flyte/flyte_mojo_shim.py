@@ -30,6 +30,7 @@ import asyncio
 import os
 import re
 import subprocess
+from datetime import timedelta
 
 import flyte
 
@@ -121,6 +122,46 @@ def _cache(conf):
     return flyte.Cache(behavior=behavior, version_override=version, salt=salt or "")
 
 
+def _backoff(conf):
+    """The pacing between retries, or None for back-to-back attempts."""
+    base = conf.get("backoff_base")
+    if not base:
+        return None
+    policy = {"base": timedelta(seconds=int(base))}
+    if conf.get("backoff_factor"):
+        policy["factor"] = float(conf["backoff_factor"])
+    if conf.get("backoff_cap"):
+        policy["cap"] = timedelta(seconds=int(conf["backoff_cap"]))
+    return flyte.Backoff(**policy)
+
+
+def _timeout(conf):
+    """The wall-clock bounds, or None when none are set."""
+    bounds = {}
+    if conf.get("timeout_runtime"):
+        bounds["max_runtime"] = int(conf["timeout_runtime"])
+    if conf.get("timeout_queued"):
+        bounds["max_queued_time"] = int(conf["timeout_queued"])
+    if conf.get("timeout_deadline"):
+        bounds["deadline"] = int(conf["timeout_deadline"])
+    return flyte.Timeout(**bounds) if bounds else None
+
+
+def _reliability(conf, kwargs):
+    if conf.get("retries"):
+        backoff = _backoff(conf)
+        kwargs["retries"] = (
+            flyte.RetryStrategy(count=int(conf["retries"]), backoff=backoff)
+            if backoff
+            else int(conf["retries"])
+        )
+    timeout = _timeout(conf)
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if conf.get("interruptible"):
+        kwargs["interruptible"] = conf["interruptible"] == "true"
+
+
 def override_kwargs(spec):
     """Turn a spec into keyword arguments for ``TaskTemplate.override``."""
     conf = decode_spec(spec)
@@ -131,6 +172,7 @@ def override_kwargs(spec):
     cache = _cache(conf)
     if cache is not None:
         kwargs["cache"] = cache
+    _reliability(conf, kwargs)
     return kwargs
 
 
