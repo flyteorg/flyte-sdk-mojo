@@ -116,6 +116,24 @@ else
   fail=$((fail + 1)); echo "  FAIL override checks"; printf '%s\n' "$out"
 fi
 
+echo "== checkpoints: state that survives an attempt =="
+out=$(FLYTE_MOJO_ACTION=ml.train FLYTE_MOJO_PROTOCOL=1 \
+      mojo run -I . examples/resume.mojo 2>&1 </dev/null)
+check "a worker asks what a previous attempt left" '__FLYTE_MOJO_CKPT__:load' "$out"
+
+# The simulator answers the protocol, so the worker gets past load and runs
+# for real — up to the eviction the example stages on its first attempt.
+export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"
+out=$(python tests/simulate.py examples/resume.mojo ml.train 10 2>&1 || true)
+check "the simulator services it and the work runs" 'evicted at step 5' "$out"
+
+out=$(HOME=$(mktemp -d) mojo run -I . examples/resume.mojo 2>&1)
+check "locally the checkpoint carries across a retry" 'resuming from step 5' "$out"
+check "so the second attempt finishes the work"       'steps completed: 10' "$out"
+echo "== control plane: refused from inside an action =="
+out=$(FLYTE_MOJO_ACTION=cp.probe mojo run -I . tests/worker_control.mojo 2>&1 </dev/null)
+check "all five calls raise in a worker" '__FLYTE_MOJO_OUTPUT__:refused=5' "$out"
+
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"
 out=$(python tests/simulate.py tests/worker_flow.mojo j.flow 2 2>&1)

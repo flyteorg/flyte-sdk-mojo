@@ -20,6 +20,8 @@ Where it runs is a property of the *config*, not of the code:
 endpoint, and compiles + ships this same file to the cluster when there
 is. See ``_mode`` for the three roles a program plays.
 """
+from ._checkpoint import checkpoint_load, checkpoint_save
+from ._control import RunInfo, abort, logs, rerun, runs, status
 from ._config import Config, MODE_LOCAL, MODE_REMOTE, MODE_WORKER, init_from_config, mode
 from ._ctx import Ctx, ctx
 from ._core import run, task, trace

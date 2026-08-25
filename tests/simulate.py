@@ -36,6 +36,7 @@ class Sim:
         self.actions = 0
         self.traces = 0
         self.groups = 0
+        self.checkpoints = {}    # per action, standing in for Flyte's store
 
     def _emit(self, depth, text):
         self.lines.append("  " * depth + text)
@@ -69,7 +70,7 @@ class Sim:
         logs = []
         result = None
         try:
-            result = self._pump(proc, journal, depth, logs)
+            result = self._pump(proc, journal, depth, logs, name)
         except _WorkerExit:
             pass  # the exit code below is the real story
         finally:
@@ -86,7 +87,7 @@ class Sim:
             raise RuntimeError("action %s produced no result" % name)
         return result
 
-    def _pump(self, proc, journal, depth, logs):
+    def _pump(self, proc, journal, depth, logs, name=""):
         open_groups = 0
         while True:
             line = proc.stdout.readline()
@@ -107,6 +108,17 @@ class Sim:
                 elif open_groups:
                     open_groups -= 1
                     depth -= 1
+                continue
+
+            if line.startswith(shim.CKPT_MARK):
+                fields = shim._decode_row(line[len(shim.CKPT_MARK):])
+                if fields[0] == "save":
+                    self.checkpoints[name] = fields[1] if len(fields) > 1 else ""
+                    reply = ["OK"]
+                else:
+                    reply = ["OK", self.checkpoints.get(name, "")]
+                proc.stdin.write(shim._encode_row(reply) + "\n")
+                proc.stdin.flush()
                 continue
 
             if line.startswith(shim.CALL_MARK):
@@ -137,7 +149,7 @@ class Sim:
                 if fields[0] == "begin":
                     self.traces += 1
                     self._emit(depth + 1, "~%s(%s)" % (fields[1], ", ".join(fields[2:])))
-                    self._pump(proc, journal, depth + 1, logs)  # until the span ends
+                    self._pump(proc, journal, depth + 1, logs, name)  # until the span ends
                     continue
                 error = fields[2] if len(fields) > 2 else ""
                 if error:
