@@ -491,7 +491,11 @@ def cp_runs(limit):
     import flyte.remote as remote
 
     _pyflyte()
-    return [_run_row(run) for run in remote.Run.listall(limit=int(limit))]
+    # Without an explicit sort the API does not return newest first.
+    return [
+        _run_row(run)
+        for run in remote.Run.listall(limit=int(limit), sort_by=("created_at", "desc"))
+    ]
 
 
 def cp_status(name):
@@ -559,7 +563,6 @@ PACKAGE = "flyte"
 BRIDGE_MODULE = "_flyte_mojo_state.py"   # this file; how the package is recognised
 BINARY_NAME = "task_binary"
 OUTPUT_MARK = "__FLYTE_MOJO_OUTPUT__:"
-ACTION_TIMEOUT = 900
 
 # Runtime shared objects a compiled Mojo binary links against; copied out of
 # the builder image and bundled with the task.

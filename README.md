@@ -538,9 +538,12 @@ flyte/                  # Mojo SDK package
   _map.mojo             # map[...]: parallel fan-out
   _wire.mojo            # string <-> typed values for the remote boundary
   _core.mojo            # arity 0-3 task/trace/run wrappers + factories
-  _env.mojo             # TaskEnvironment + Resources (binding API)
+  _env.mojo             # TaskEnvironment: names + all configuration (binding API)
+  _spec.mojo            # the configuration itself: Resources, Cache, Reliability,
+                        # Secrets, Reuse, and their wire encoding
   _config.mojo          # Config + init_from_config() + mode()
   _remote.mojo          # remote dispatch + the Python-task escape hatch
+  _control.mojo         # control plane: runs(), status(), abort(), logs(), rerun()
   _group.mojo           # group(): `with` blocks that name a region
   _run.mojo             # Run[R] result struct
   _ctx.mojo             # Ctx + ctx()
@@ -552,12 +555,18 @@ examples/               # user-space code — nothing the SDK needs
   fib.mojo              # native compute + failure path
   pipeline.mojo         # multi-action workflow: fan-out + traces
   agent.mojo            # data-dependent tree: branching + a grandchild action
+  resume.mojo           # a task that survives its own failure (checkpoints)
+  inspect.mojo          # the control plane: what ran, how, why
   python_task.mojo/.py  # escape hatch: an existing Python task
 tests/
-  local_test.mojo       # 53 checks
-  worker_checks.sh      # 25 worker/protocol checks (no cluster needed)
+  local_test.mojo       # 69 checks
+  worker_checks.sh      # 60 worker/protocol checks (no cluster needed)
   simulate.py           # runs a multi-action tree locally, one process per action
   worker_flow.mojo      # fixture program for the worker-role checks
+  worker_config.mojo    # fixture program for the configuration checks
+  override_checks.py    # asserts a spec lands on a real TaskTemplate
   fixture_config.yaml   # fixed config so the suite is machine-independent
+docs/
+  design-notes.md       # what the four remaining gaps would actually take
 _flyte_mojo/            # generated: builder Dockerfile + cached builds (gitignored)
 ```
