@@ -8,7 +8,7 @@ from std.os import setenv
 
 from flyte import *
 from flyte._bridge import journal_lookup
-from flyte._spec import encode_cache, encode_reliability, encode_resources, encode_secrets
+from flyte._spec import encode_cache, encode_reliability, encode_resources, encode_reuse, encode_secrets
 from flyte._state import state
 from flyte._wire import from_wire, supported_on_wire, to_wire
 
@@ -221,6 +221,14 @@ def main() raises:
     _check(
         bounded == "timeout_runtime=1800\ttimeout_queued=900\ttimeout_deadline=7200\t",
         "a Timeout encodes its three bounds",
+    )
+
+    comptime no_reuse: String = encode_reuse(Reuse())
+    comptime warm: String = encode_reuse(Reuse(replicas=2, idle_ttl=60, scope="run"))
+    _check(no_reuse == "", "one pod per action unless reuse is asked for")
+    _check(
+        warm == "reuse_replicas=2\treuse_idle_ttl=60\treuse_scope=run\t",
+        "a reuse policy encodes its replicas, ttl and scope",
     )
 
     comptime no_secrets: String = encode_secrets(Secrets())

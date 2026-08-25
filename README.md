@@ -433,8 +433,20 @@ because nobody has written it yet, not because Mojo is in the way.
 | caching | `cache="auto"` | `Cache("auto")`, or pinned with `version=` / `salt=` |
 | reliability | `retries=RetryStrategy` / `int`, `timeout=Timeout` / `int`, `interruptible=` | `Reliability(retries=, timeout=, interruptible=)` — `retries` is a `RetryStrategy` (or a bare count), `timeout` a `Timeout` (or bare seconds, bounding one attempt's runtime) |
 | secrets | `Secret(key=, as_env_var=)` | `Secrets("KEY, OTHER=ENV_NAME", group=)` |
+| container reuse | `ReusePolicy` | `Reuse(replicas=, idle_ttl=, concurrency=, scope=)` — see the note below |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
+
+`Reuse` cannot be combined with `Resources` on the same action — a reusable
+container already has the resources of its pool, and Flyte refuses the
+override. The SDK raises with that explanation rather than letting Flyte's
+error surface from inside the shim.
+
+`Reuse` is also the one entry above not verified against a live cluster:
+`demo.hosted.unionai.cloud` leaves an action with a reuse policy in
+`WAITING_FOR_RESOURCES` indefinitely, so its container pool is evidently not
+enabled there. The policy is asserted onto a real `TaskTemplate` by
+`tests/override_checks.py`, but treat end-to-end behaviour as untested.
 
 ### What is missing
 
@@ -442,7 +454,6 @@ because nobody has written it yet, not because Mojo is in the way.
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
 | **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
-| **container reuse** | `ReusePolicy` | none — one pod per action |
 | **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
 | **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
 | **control plane** | `flyte.remote`: list, abort, logs, rerun | launch, wait, fetch the output |
