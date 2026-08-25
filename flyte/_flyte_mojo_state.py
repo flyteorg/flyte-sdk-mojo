@@ -523,7 +523,7 @@ _INCLUDE = tuple(
     os.path.join(_HERE, name) for name in (%(binary)r, %(runtime)r, *%(libs)r)
 )
 
-env = flyte.TaskEnvironment(name=%(env_name)r, include=_INCLUDE)
+env = flyte.TaskEnvironment(name=%(env_name)r, include=_INCLUDE%(image)s)
 
 # One Flyte task per Mojo action, so the UI shows real names rather than a
 # single generic worker. Anything not discovered falls back to mojo_action.
@@ -796,7 +796,7 @@ def _write_if_changed(path, content):
             handle.write(content)
 
 
-def _write_shim(outdir, action, env_name, program):
+def _write_shim(outdir, action, env_name, program, image=""):
     """Stage the pod-side runtime and the shim for ``action``.
 
     Returns (shim path, task function name).
@@ -825,6 +825,9 @@ def _write_shim(outdir, action, env_name, program):
         "libs": list(RUNTIME_LIBS),
         "env_name": env_name,
         "tasks": tasks,
+        # Flyte resolves the image when the environment is built, so this is
+        # the one setting that cannot ride along with the action.
+        "image": (", image=%r" % image) if image else "",
     })
     return path, fn
 
@@ -870,7 +873,8 @@ def remote_run_mojo(action, args, run_name="", spec=""):
     pyflyte = _pyflyte()
     outdir = build_program(root, program)
     env_name = "mojo_%s" % _identifier(os.path.splitext(os.path.basename(program))[0])
-    shim_path, fn_name = _write_shim(outdir, action, env_name, program)
+    image = shim_runtime().decode_spec(spec).get("image", "")
+    shim_path, fn_name = _write_shim(outdir, action, env_name, program, image)
     module = _load_module(shim_path, "_flyte_mojo_%s" % fn_name)
     fn = shim_runtime().configured(getattr(module, fn_name), spec)
 

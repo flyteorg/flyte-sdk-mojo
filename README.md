@@ -242,6 +242,10 @@ the action — on the launch for a root action, in the `CALL` request for a
 child. Nothing is registered and nothing is parsed out of your source, so a
 task's configuration cannot drift from the task.
 
+**The free `run[...]` and `map[...]` carry no configuration.** They have no
+environment to read it from, so anything you declare is silently ignored —
+use `env.run` and `env.map` whenever an action needs configuring.
+
 Three call sites take an override, and which one you want depends on what is
 being launched:
 
@@ -434,8 +438,19 @@ because nobody has written it yet, not because Mojo is in the way.
 | reliability | `retries=RetryStrategy` / `int`, `timeout=Timeout` / `int`, `interruptible=` | `Reliability(retries=, timeout=, interruptible=)` — `retries` is a `RetryStrategy` (or a bare count), `timeout` a `Timeout` (or bare seconds, bounding one attempt's runtime) |
 | secrets | `Secret(key=, as_env_var=)` | `Secrets("KEY, OTHER=ENV_NAME", group=)` |
 | container reuse | `ReusePolicy` | `Reuse(replicas=, idle_ttl=, concurrency=, scope=)` — see the note below |
+| images | `Image`, dependency specs | `TaskEnvironment["e", image="ghcr.io/..."]` — one per program |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
+
+The container image is the exception to all of this: Flyte resolves it when
+the *environment* is built, not when an action is launched, so it is declared
+on `TaskEnvironment` and applies to every action of the program. That costs
+nothing in practice — a program is one compiled binary in one code bundle, so
+its actions were always going to share an image.
+
+```mojo
+comptime env = TaskEnvironment["demo", image="ghcr.io/flyteorg/flyte:py3.13-v2.6.3"]()
+```
 
 `Reuse` cannot be combined with `Resources` on the same action — a reusable
 container already has the resources of its pool, and Flyte refuses the
@@ -453,7 +468,6 @@ enabled there. The policy is asserted onto a real `TaskTemplate` by
 | Area | Python | Mojo today |
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
-| **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
 | **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
 | **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
 | **control plane** | `flyte.remote`: list, abort, logs, rerun | launch, wait, fetch the output |

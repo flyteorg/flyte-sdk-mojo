@@ -21,7 +21,7 @@ from ._core import (
 )
 from ._map import map as _map
 from ._run import Run
-from ._spec import Cache, Reliability, Resources, Reuse, Secrets, encode_cache, encode_reliability, encode_resources, encode_reuse, encode_secrets
+from ._spec import Cache, Reliability, Resources, Reuse, Secrets, encode_cache, encode_reliability, encode_resources, encode_reuse, encode_secrets, field
 from std.collections import List
 
 
@@ -32,6 +32,7 @@ struct TaskEnvironment[
     reliability: Reliability = Reliability(),
     secrets: Secrets = Secrets(),
     reuse: Reuse = Reuse(),
+    image: String = "",
 ](ImplicitlyCopyable, Movable):
     comptime name: String = Self.env_name
     comptime spec: String = (
@@ -40,6 +41,7 @@ struct TaskEnvironment[
         + encode_reliability(Self.reliability)
         + encode_secrets(Self.secrets)
         + encode_reuse(Self.reuse)
+        + field("image", Self.image)
     )
     """This environment's configuration, encoded once at compile time."""
 
