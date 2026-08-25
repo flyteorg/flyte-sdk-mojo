@@ -145,6 +145,26 @@ struct Reliability(ImplicitlyCopyable, Movable):
         self.interruptible = interruptible
 
 
+struct Secrets(ImplicitlyCopyable, Movable):
+    """Cluster secrets to expose to an action, as environment variables.
+
+    Flyte takes a list, and a Mojo compile-time parameter cannot hold one, so
+    the keys are written as one comma-separated string:
+
+        Secrets("OPENAI_API_KEY, DB_PASS=DATABASE_PASSWORD")
+
+    A bare key becomes an environment variable of the same name; ``KEY=NAME``
+    renames it. ``group`` applies to all of them.
+    """
+
+    var keys: String
+    var group: String
+
+    def __init__(out self, keys: String = "", *, group: String = ""):
+        self.keys = keys
+        self.group = group
+
+
 def field(key: String, value: String) -> String:
     """One ``key=value`` field, or nothing at all when the value is unset.
 
@@ -196,6 +216,10 @@ def encode_reliability(r: Reliability) -> String:
         + field_int("timeout_deadline", r.timeout.deadline)
         + field_bool("interruptible", r.interruptible)
     )
+
+
+def encode_secrets(s: Secrets) -> String:
+    return field("secrets", s.keys) + field("secret_group", s.group)
 
 
 def encode_resources(r: Resources) -> String:

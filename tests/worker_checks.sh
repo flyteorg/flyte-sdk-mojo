@@ -107,6 +107,15 @@ check "retries, timeout and interruptible"   "reliab: \{'retries': 3, 'timeout':
 check "a bare timeout bounds the runtime"    "'timeout': Timeout\(max_runtime=60, max_queued_time=None, deadline=None\), 'interruptible': True" "$spec"
 check "a backoff rides with the retries"     "paced: \{'retries': RetryStrategy\(count=5, backoff=Backoff\(base=datetime\.timedelta\(seconds=10\), factor=2\.0, cap=datetime\.timedelta\(seconds=300\)\)\)" "$spec"
 
+echo "== config: a spec becomes a real Flyte task override =="
+out=$(python tests/override_checks.py 2>&1)
+printf '%s\n' "$out" | sed -n 's/^  \(PASS\|FAIL\) /  \1 /p'
+if printf '%s' "$out" | grep -q "0 failed"; then
+  pass=$((pass + 11))
+else
+  fail=$((fail + 1)); echo "  FAIL override checks"; printf '%s\n' "$out"
+fi
+
 echo "== the whole protocol, driven end to end by the simulator =="
 export FLYTE_MOJO_SIM_HOME="$(mktemp -d)"
 out=$(python tests/simulate.py tests/worker_flow.mojo j.flow 2 2>&1)

@@ -432,6 +432,7 @@ because nobody has written it yet, not because Mojo is in the way.
 | resources | `Resources(cpu=, memory=, gpu=)` | `TaskEnvironment["e", resources=Resources(...)]`, overridable per task, per fan-out and per run |
 | caching | `cache="auto"` | `Cache("auto")`, or pinned with `version=` / `salt=` |
 | reliability | `retries=RetryStrategy` / `int`, `timeout=Timeout` / `int`, `interruptible=` | `Reliability(retries=, timeout=, interruptible=)` — `retries` is a `RetryStrategy` (or a bare count), `timeout` a `Timeout` (or bare seconds, bounding one attempt's runtime) |
+| secrets | `Secret(key=, as_env_var=)` | `Secrets("KEY, OTHER=ENV_NAME", group=)` |
 | local execution | yes | yes, with a trace report |
 | error propagation | exceptions | `Error`, with the Mojo message intact |
 
@@ -441,7 +442,6 @@ because nobody has written it yet, not because Mojo is in the way.
 |---|---|---|
 | **task I/O** | any typed value — `File`, `Dir`, `DataFrame`, dataclasses, Pydantic | `String`, `Int`, `Float64`, `Bool`; 0–3 positional arguments; one return value |
 | **images** | `Image`, dependency specs, `build_images` | one fixed image; your code ships as a bundled binary instead |
-| **secrets** | `Secret` | none |
 | **container reuse** | `ReusePolicy` | none — one pod per action |
 | **scheduling** | `Cron`, `Trigger`, `OnArtifact` | none — runs are launched by hand |
 | **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |

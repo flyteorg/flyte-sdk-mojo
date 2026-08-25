@@ -29,5 +29,5 @@ from ._map import map
 from ._mode import is_worker
 from ._remote import remote_run
 from ._run import Run
-from ._spec import Backoff, Cache, Reliability, Resources, RetryStrategy, Timeout
+from ._spec import Backoff, Cache, Reliability, Resources, RetryStrategy, Secrets, Timeout
 from ._wire import from_wire, to_wire
