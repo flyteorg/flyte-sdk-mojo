@@ -21,16 +21,17 @@ from ._core import (
 )
 from ._map import map as _map
 from ._run import Run
-from ._spec import Resources, encode_resources
+from ._spec import Cache, Resources, encode_cache, encode_resources
 from std.collections import List
 
 
 struct TaskEnvironment[
     env_name: String,
     resources: Resources = Resources(),
+    cache: Cache = Cache(),
 ](ImplicitlyCopyable, Movable):
     comptime name: String = Self.env_name
-    comptime spec: String = encode_resources(Self.resources)
+    comptime spec: String = encode_resources(Self.resources) + encode_cache(Self.cache)
     """This environment's configuration, encoded once at compile time."""
 
     def __init__(out self):
@@ -38,17 +39,17 @@ struct TaskEnvironment[
 
     # -- task factories (fqn = "<env>.<name>") ----------------------------
 
-    def task[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, resources_override: Resources = Resources()](self) -> def() raises thin -> B:
-        return _task0[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override)]
+    def task[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, resources_override: Resources = Resources(), cache_override: Cache = Cache()](self) -> def() raises thin -> B:
+        return _task0[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)]
 
-    def task[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, resources_override: Resources = Resources()](self) -> def(x: A) raises thin -> B:
-        return _task1[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override)]
+    def task[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, resources_override: Resources = Resources(), cache_override: Cache = Cache()](self) -> def(x: A) raises thin -> B:
+        return _task1[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)]
 
-    def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, resources_override: Resources = Resources()](self) -> def(x: A, y: C) raises thin -> B:
-        return _task2[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override)]
+    def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, resources_override: Resources = Resources(), cache_override: Cache = Cache()](self) -> def(x: A, y: C) raises thin -> B:
+        return _task2[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)]
 
-    def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, resources_override: Resources = Resources()](self) -> def(x: A, y: C, z: D) raises thin -> B:
-        return _task3[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override)]
+    def task[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, resources_override: Resources = Resources(), cache_override: Cache = Cache()](self) -> def(x: A, y: C, z: D) raises thin -> B:
+        return _task3[f=f, fqn=Self.name + "." + name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)]
 
     # -- trace factories ----------------------------------------------------
     # A trace runs inside its caller's pod, so it has no configuration of
@@ -73,19 +74,19 @@ struct TaskEnvironment[
     # was built with. So the configuration for the children is declared here,
     # at the call site that launches them.
 
-    def map[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, resources_override: Resources = Resources()](self, items: List[A]) raises -> List[B]:
-        return _map[f=f, name=name, spec=Self.spec + encode_resources(resources_override)](items)
+    def map[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, resources_override: Resources = Resources(), cache_override: Cache = Cache()](self, items: List[A]) raises -> List[B]:
+        return _map[f=f, name=name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)](items)
 
     # -- run: as the free run[...], but carrying this environment's config --
 
-    def run[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources()](self) raises -> Run[B]:
-        return _run0[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override)]()
+    def run[B: Writable & Copyable & Deinitable, f: def() raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources(), cache_override: Cache = Cache()](self) raises -> Run[B]:
+        return _run0[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)]()
 
-    def run[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources()](self, x: A) raises -> Run[B]:
-        return _run1[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override)](x)
+    def run[A: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources(), cache_override: Cache = Cache()](self, x: A) raises -> Run[B]:
+        return _run1[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)](x)
 
-    def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources()](self, x: A, y: C) raises -> Run[B]:
-        return _run2[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override)](x, y)
+    def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources(), cache_override: Cache = Cache()](self, x: A, y: C) raises -> Run[B]:
+        return _run2[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)](x, y)
 
-    def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources()](self, x: A, y: C, z: D) raises -> Run[B]:
-        return _run3[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override)](x, y, z)
+    def run[A: Writable & Copyable & Deinitable, C: Writable & Copyable & Deinitable, D: Writable & Copyable & Deinitable, B: Writable & Copyable & Deinitable, f: def(A, C, D) raises thin -> B, name: String, run_name: String = "", resources_override: Resources = Resources(), cache_override: Cache = Cache()](self, x: A, y: C, z: D) raises -> Run[B]:
+        return _run3[f=f, fqn=name, run_name=run_name, spec=Self.spec + encode_resources(resources_override) + encode_cache(cache_override)](x, y, z)

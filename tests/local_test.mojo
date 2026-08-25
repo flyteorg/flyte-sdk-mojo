@@ -8,7 +8,7 @@ from std.os import setenv
 
 from flyte import *
 from flyte._bridge import journal_lookup
-from flyte._spec import encode_resources
+from flyte._spec import encode_cache, encode_resources
 from flyte._state import state
 from flyte._wire import from_wire, supported_on_wire, to_wire
 
@@ -190,6 +190,16 @@ def main() raises:
     )
     comptime merged: String = cpu_only + encode_resources(Resources(cpu="8"))
     _check(merged == "cpu=2\tcpu=8\t", "an override is appended, for the reader to resolve")
+
+    comptime no_cache: String = encode_cache(Cache())
+    comptime auto_cache: String = encode_cache(Cache("auto"))
+    comptime pinned: String = encode_cache(Cache("override", version="v2", salt="s"))
+    _check(no_cache == "", "caching is off unless asked for")
+    _check(auto_cache == "cache=auto\t", "a bare behavior encodes on its own")
+    _check(
+        pinned == "cache=override\tcache_version=v2\tcache_salt=s\t",
+        "a pinned cache carries its version and salt",
+    )
 
     # ------------------------------------------------------------------
     print("== journal: results a worker should not recompute ==")
