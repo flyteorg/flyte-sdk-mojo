@@ -32,6 +32,7 @@ import asyncio
 import os
 import re
 import subprocess
+import sys
 from datetime import timedelta
 
 import flyte
@@ -183,18 +184,131 @@ def _secrets(conf):
     return secrets or None
 
 
-def _reuse(conf):
-    replicas = conf.get("reuse_replicas")
-    if not replicas:
+# Every reuse field is read left to right except one: `reuse_off` is not a
+# setting but an event, discarding the policy that precedes it. That is what
+# makes `Reuse(off=True)` able to escape a pool declared by the environment,
+# whose fields are encoded ahead of any call site's.
+_REUSE_INTS = {
+    "reuse_replicas": "replicas (containers in the pool)",
+    "reuse_max_replicas": "max_replicas (largest the pool may grow to)",
+    "reuse_idle_ttl": "idle_ttl (seconds the whole pool waits for work)",
+    "reuse_scaledown_ttl": "scaledown_ttl (seconds an idle replica survives)",
+    "reuse_concurrency": "concurrency (actions per container)",
+}
+
+
+def _reuse_fields(spec):
+    """The reuse fields of a spec, in order, with `reuse_off` applied."""
+    fields = {}
+    for field in (spec or "").split("\t"):
+        if not field.startswith("reuse_"):
+            continue
+        key, _, value = field.partition("=")
+        value = _unescape(value)
+        if key == "reuse_off":
+            if value == "true":
+                fields = {}
+            continue
+        if value:
+            fields[key] = value
+    return fields
+
+
+def _reuse(spec):
+    """The policy a spec asks for, or None for "run me in a fresh pod".
+
+    Flyte's own defaults are left to Flyte: a field that was never set is
+    never passed on, so a policy says only what the program asked for.
+    """
+    fields = _reuse_fields(spec)
+    if "reuse_replicas" not in fields:
+        if "reuse_max_replicas" in fields:
+            raise ValueError(
+                "flyte: Reuse max_replicas=%s without replicas. replicas is the "
+                "floor the pool keeps — and what turns reuse on at all — and "
+                "max_replicas is the ceiling it may grow to."
+                % fields["reuse_max_replicas"]
+            )
         return None
-    policy = {"replicas": int(replicas)}
-    if conf.get("reuse_idle_ttl"):
-        policy["idle_ttl"] = int(conf["reuse_idle_ttl"])
-    if conf.get("reuse_concurrency"):
-        policy["concurrency"] = int(conf["reuse_concurrency"])
-    if conf.get("reuse_scope"):
-        policy["scope"] = conf["reuse_scope"]
+
+    def want(key, minimum, message):
+        """One reuse number, checked, or None when the field was not set."""
+        raw = fields.get(key)
+        if raw is None:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            raise ValueError(
+                "flyte: Reuse %s must be a whole number, got %r." % (_REUSE_INTS[key], raw)
+            ) from None
+        if value < minimum:
+            raise ValueError(
+                "flyte: Reuse %s is %d; %s." % (_REUSE_INTS[key], value, message)
+            )
+        return value
+
+    replicas = want(
+        "reuse_replicas", 1,
+        "a pool of nothing is no pool — leave Reuse() out, or pass Reuse(off=True)",
+    )
+    maximum = want(
+        "reuse_max_replicas", 1, "the ceiling cannot sit below the floor the pool keeps"
+    )
+    idle_ttl = want("reuse_idle_ttl", 30, "30 seconds is Flyte's minimum")
+    scaledown_ttl = want("reuse_scaledown_ttl", 30, "30 seconds is Flyte's minimum")
+    concurrency = want("reuse_concurrency", 1, "a container has to run at least one action")
+    if maximum is not None and maximum < replicas:
+        raise ValueError(
+            "flyte: Reuse max_replicas=%d is below replicas=%d — the first is "
+            "the floor the pool keeps, the second the ceiling it may grow to."
+            % (maximum, replicas)
+        )
+
+    policy = {"replicas": (replicas, maximum if maximum is not None else replicas)}
+    if idle_ttl is not None:
+        policy["idle_ttl"] = idle_ttl
+    if scaledown_ttl is not None:
+        policy["scaledown_ttl"] = scaledown_ttl
+    if concurrency is not None:
+        policy["concurrency"] = concurrency
+    scope = fields.get("reuse_scope")
+    if scope is not None and scope not in ("global", "run"):
+        raise ValueError(
+            'flyte: Reuse(scope="%s") is not a scope. Use "global" to share '
+            "one pool across runs or \"run\" to give each run its own."
+            % scope
+        )
+    if scope is not None:
+        policy["scope"] = scope
+
+    if policy["replicas"][1] == 1 and policy.get("concurrency", 1) == 1:
+        # Flyte warns about the single-slot pool in general. It cannot know
+        # that here it is the worst case rather than a rare one: every action
+        # of a program is a task on the one generated environment, so the one
+        # container is shared by a parent and the children it waits for.
+        print(
+            "flyte: warning: Reuse(replicas=1, concurrency=1) is a single "
+            "container shared by every action of this program — a parent "
+            "action holds it while waiting for a child that needs it. Use two "
+            "replicas, a concurrency above 1, or Reuse(off=True) on the "
+            "parent.",
+            file=sys.stderr,
+        )
+
     return flyte.ReusePolicy(**policy)
+
+
+def _reuse_clash(setting, noun):
+    return (
+        "flyte: an action cannot combine %s with Reuse. A reusable container "
+        "already runs with the %s of the pool it belongs to, so Flyte refuses "
+        "the override. Decide which of the two this action needs: drop the %s, "
+        "or add off=True to the Reuse(...) to run it in a pod of its own. Both "
+        "may have come from the TaskEnvironment, in which case that is where "
+        "the fix belongs."
+        % (setting, noun, setting)
+    )
 
 
 def override_kwargs(spec):
@@ -211,19 +325,16 @@ def override_kwargs(spec):
     secrets = _secrets(conf)
     if secrets is not None:
         kwargs["secrets"] = secrets
-    reuse = _reuse(conf)
+    reuse = _reuse(spec)
     if reuse is not None:
+        # Flyte rejects these three deep inside override(), and the two
+        # settings usually arrive from different places — resources and
+        # secrets from the environment, Reuse from a call site — so by the
+        # time Flyte notices, the program is a failed action on a cluster.
         if "resources" in kwargs:
-            # Flyte rejects this deep inside override(); say it in the SDK's
-            # own terms, because the two settings usually come from different
-            # places — resources from the environment, Reuse from a call site.
-            raise ValueError(
-                "flyte: an action cannot combine Resources with Reuse. A "
-                "reusable container already has the resources of the pool it "
-                "belongs to, so Flyte will not let a task override them. "
-                "Drop the Reuse(...), or drop the resources from the "
-                "environment and every call site that reaches this action."
-            )
+            raise ValueError(_reuse_clash("Resources", "resources"))
+        if "secrets" in kwargs:
+            raise ValueError(_reuse_clash("Secrets", "secrets"))
         kwargs["reusable"] = reuse
     return kwargs
 

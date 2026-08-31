@@ -170,25 +170,40 @@ struct Reuse(ImplicitlyCopyable, Movable):
 
     Pod startup dominates any action that does less than a few seconds of
     work — a fan-out of short tasks spends most of its wall clock waiting for
-    containers. A reuse policy keeps ``replicas`` of them warm and hands them
-    the next action instead.
+    containers. A reuse policy keeps containers warm and hands them the next
+    action instead.
 
-    ``replicas`` greater than zero turns it on. ``idle_ttl`` is how long a
-    warm container waits for more work, in seconds; ``concurrency`` is how
-    many actions one container takes at a time; ``scope`` is "global" to share
-    across runs or "run" to keep them to one.
+    ``replicas`` greater than zero turns it on: alone it is a fixed pool, and
+    with ``max_replicas`` above it the pool scales between the two. ``idle_ttl``
+    is how long the whole pool waits after its last action, and
+    ``scaledown_ttl`` how long one idle replica survives while the pool is
+    still sizing itself — both in seconds. ``concurrency`` is how many actions
+    one container takes at a time, so total capacity is ``max_replicas *``
+    ``concurrency``. ``scope`` is "global" to share the pool across runs or
+    "run" to keep it to one.
+
+    ``off=True`` takes an action out of a pool its environment declared. It
+    needs saying because a program's actions share one pool, and a parent that
+    waits for its children must not sit in the same pool as they do — it would
+    hold a replica while occupying the replica it is waiting on.
     """
 
     var replicas: Int
+    var max_replicas: Int
     var idle_ttl: Int
+    var scaledown_ttl: Int
     var concurrency: Int
     var scope: String
+    var off: Bool
 
-    def __init__(out self, *, replicas: Int = 0, idle_ttl: Int = 0, concurrency: Int = 0, scope: String = ""):
+    def __init__(out self, *, replicas: Int = 0, max_replicas: Int = 0, idle_ttl: Int = 0, scaledown_ttl: Int = 0, concurrency: Int = 0, scope: String = "", off: Bool = False):
         self.replicas = replicas
+        self.max_replicas = max_replicas
         self.idle_ttl = idle_ttl
+        self.scaledown_ttl = scaledown_ttl
         self.concurrency = concurrency
         self.scope = scope
+        self.off = off
 
 
 def field(key: String, value: String) -> String:
@@ -249,9 +264,19 @@ def encode_secrets(s: Secrets) -> String:
 
 
 def encode_reuse(r: Reuse) -> String:
+    """The policy, or one field saying there is none.
+
+    ``off`` wins over the rest of the struct rather than being encoded
+    alongside it: the reader clears the policy that precedes ``reuse_off``,
+    which is what lets a call site escape the environment's pool.
+    """
+    if r.off:
+        return field_bool("reuse_off", True)
     return (
         field_int("reuse_replicas", r.replicas)
+        + field_int("reuse_max_replicas", r.max_replicas)
         + field_int("reuse_idle_ttl", r.idle_ttl)
+        + field_int("reuse_scaledown_ttl", r.scaledown_ttl)
         + field_int("reuse_concurrency", r.concurrency)
         + field("reuse_scope", r.scope)
     )

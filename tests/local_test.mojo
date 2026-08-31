@@ -230,6 +230,28 @@ def main() raises:
         warm == "reuse_replicas=2\treuse_idle_ttl=60\treuse_scope=run\t",
         "a reuse policy encodes its replicas, ttl and scope",
     )
+    comptime scaled: String = encode_reuse(
+        Reuse(replicas=1, max_replicas=3, scaledown_ttl=120, concurrency=4)
+    )
+    _check(
+        scaled == "reuse_replicas=1\treuse_max_replicas=3\treuse_scaledown_ttl=120\treuse_concurrency=4\t",
+        "a pool that scales encodes its floor and its ceiling",
+    )
+    _check(
+        encode_reuse(Reuse(off=True)) == "reuse_off=true\t",
+        "off is one field saying there is no policy",
+    )
+    _check(
+        encode_reuse(Reuse(replicas=4, idle_ttl=90, off=True)) == "reuse_off=true\t",
+        "off wins over the settings it cancels",
+    )
+    # The escape hatch depends on this: the environment's policy is encoded
+    # ahead of the call site's, so the reader sees the off after the pool.
+    comptime escaped: String = encode_reuse(Reuse(replicas=2)) + encode_reuse(Reuse(off=True))
+    _check(
+        escaped == "reuse_replicas=2\treuse_off=true\t",
+        "a pool and the call site leaving it ride one spec, in order",
+    )
 
     comptime no_secrets: String = encode_secrets(Secrets())
     comptime two: String = encode_secrets(Secrets("A, B=BEE", group="team"))
