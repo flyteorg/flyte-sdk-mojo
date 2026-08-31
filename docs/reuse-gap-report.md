@@ -16,7 +16,11 @@ correction of the claim, plus a map of what the other half costs.
 **Status.** The scorecard and the defect list below are the *as-found* state. Of
 the four steps at the end, step 1 — the launch half — is done in this change, in
 `flyte/_spec.mojo`, `flyte/flyte_mojo_shim.py` and the two test files. Steps 2-4
-are not, so the ~quarter figure stands.
+are not, so the ~quarter figure stands. Of that change, the Python half — the
+shim and `override_checks.py`, 35 checks passing — is verified against the
+pinned SDK; the `.mojo` half is pattern-matched to the encoders beside it and
+cross-checked against a Python mirror of `encode_reuse`, but not compiled,
+because the machine that wrote it has no Mojo toolchain.
 
 ---
 
