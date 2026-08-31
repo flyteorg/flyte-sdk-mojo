@@ -345,7 +345,7 @@ make fib-fail     # a Mojo error from inside the pod, back in your terminal
 make resume       # a task that fails once and resumes from its checkpoint
 make simulate     # the whole multi-action tree locally, no cluster
 make local        # run the examples in-process, ignoring any cluster config
-make test         # 53 local checks + 25 worker/protocol checks
+make test         # the spec/wire checks, the spec→TaskTemplate checks, the worker/protocol checks
 ```
 
 `make fib-fail` shows the whole failure path — Mojo `raise` in the pod →
@@ -444,7 +444,7 @@ because nobody has written it yet, not because Mojo is in the way.
 | caching | `cache="auto"` | `Cache("auto")`, or pinned with `version=` / `salt=` |
 | reliability | `retries=RetryStrategy` / `int`, `timeout=Timeout` / `int`, `interruptible=` | `Reliability(retries=, timeout=, interruptible=)` — `retries` is a `RetryStrategy` (or a bare count), `timeout` a `Timeout` (or bare seconds, bounding one attempt's runtime) |
 | secrets | `Secret(key=, as_env_var=)` | `Secrets("KEY, OTHER=ENV_NAME", group=)` |
-| container reuse | `ReusePolicy` | `Reuse(replicas=, idle_ttl=, concurrency=, scope=)` — see the note below |
+| container reuse | `ReusePolicy` | `Reuse(replicas=, max_replicas=, idle_ttl=, scaledown_ttl=, concurrency=, scope=)`, on the environment or per task, fan-out and run — the policy only, see the note below |
 | images | `Image`, dependency specs | `TaskEnvironment["e", image="ghcr.io/..."]` — one per program |
 | checkpoints | `flyte.Checkpoint` | `checkpoint_save(text)` / `checkpoint_load()` |
 | control plane | `flyte.remote`: list, abort, logs, rerun | `runs()`, `status()`, `abort()`, `logs()`, `rerun()` |
@@ -461,16 +461,26 @@ its actions were always going to share an image.
 comptime env = TaskEnvironment["demo", image="ghcr.io/flyteorg/flyte:py3.13-v2.6.3"]()
 ```
 
-`Reuse` cannot be combined with `Resources` on the same action — a reusable
-container already has the resources of its pool, and Flyte refuses the
-override. The SDK raises with that explanation rather than letting Flyte's
-error surface from inside the shim.
+`Reuse` cannot be combined with `Resources` or `Secrets` on the same action — a
+reusable container already runs with the resources and secrets of the pool it
+belongs to, and Flyte refuses the override. The SDK raises with that
+explanation rather than letting Flyte's error surface from inside the shim, and
+rejects an impossible policy the same way: a ttl under Flyte's 30-second
+minimum, a `max_replicas` below `replicas`, a scope that is neither `"global"`
+nor `"run"`.
 
-`Reuse` is also the one entry above not verified against a live cluster:
-`demo.hosted.unionai.cloud` leaves an action with a reuse policy in
-`WAITING_FOR_RESOURCES` indefinitely, so its container pool is evidently not
-enabled there. The policy is asserted onto a real `TaskTemplate` by
-`tests/override_checks.py`, but treat end-to-end behaviour as untested.
+`Reuse(off=True)` takes an action out of a pool its environment declared. That
+matters more here than in Python, because every action of a program is a task on
+one generated environment and so shares one pool: a parent that waits for a
+child holds a replica while occupying the one its child is waiting for.
+
+`Reuse` is also the one entry above that does not work end to end. A policy is
+only half of reuse — the other half is something answering the platform's lease
+as a warm replica, and this SDK ships neither the image that would provide it
+nor the runtime that would answer. `demo.hosted.unionai.cloud` leaves an action
+with a reuse policy in `WAITING_FOR_RESOURCES` indefinitely. What is here is
+asserted onto a real `TaskTemplate` by `tests/override_checks.py`, and
+[docs/reuse-gap-report.md](docs/reuse-gap-report.md) is the account of the rest.
 
 ### What is missing
 
@@ -480,8 +490,9 @@ enabled there. The policy is asserted onto a real `TaskTemplate` by
 | **concurrency** | `asyncio.gather` over anything | `map` over one list; everything else is sequential |
 | **apps and serving** | `flyte.serve`, FastAPI, vLLM | none |
 | **deployment and scheduling** | `flyte deploy`, `Cron`, `Trigger` | run-only — nothing is registered, so nothing can be scheduled or called by anyone else |
+| **container reuse** | `ReusePolicy` and a warm replica holding the lease | the policy only: `Reuse(...)` reaches the task template, nothing answers as a replica ([docs/reuse-gap-report.md](docs/reuse-gap-report.md)) |
 
-These four are not a missing afternoon's work, and
+The first four are not a missing afternoon's work, and
 [docs/design-notes.md](docs/design-notes.md) says what each would actually
 take — including the Mojo limitations behind two of them, with the compiler
 errors that establish them. The short version: files and directories are cheap
@@ -559,14 +570,15 @@ examples/               # user-space code — nothing the SDK needs
   inspect.mojo          # the control plane: what ran, how, why
   python_task.mojo/.py  # escape hatch: an existing Python task
 tests/
-  local_test.mojo       # 69 checks
+  local_test.mojo       # local execution: calls, traces, map, spec, journal, wire, config
   worker_checks.sh      # 60 worker/protocol checks (no cluster needed)
   simulate.py           # runs a multi-action tree locally, one process per action
   worker_flow.mojo      # fixture program for the worker-role checks
   worker_config.mojo    # fixture program for the configuration checks
-  override_checks.py    # asserts a spec lands on a real TaskTemplate
+  override_checks.py    # 35 checks that a spec lands on a real TaskTemplate
   fixture_config.yaml   # fixed config so the suite is machine-independent
 docs/
   design-notes.md       # what the four remaining gaps would actually take
+  reuse-gap-report.md   # container reuse: the launch half, and what the other needs
 _flyte_mojo/            # generated: builder Dockerfile + cached builds (gitignored)
 ```

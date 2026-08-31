@@ -1,10 +1,12 @@
 # Design notes: the gaps that are still open
 
 Most of what the Python SDK does and this one didn't has since been built —
-resources, images, caching, retries, secrets, container reuse, checkpoints and
-the control plane all landed as their own change. What follows is the
-remainder: four gaps that are not a missing afternoon's work, and what it would
-actually take to close each one.
+resources, images, caching, retries, secrets, checkpoints and the control plane
+all landed as their own change. Container reuse is the exception worth naming
+out loud: only its launch half landed, and it is documented separately in
+[reuse-gap-report.md](reuse-gap-report.md) rather than as one of the four below.
+What follows is the remainder: four gaps that are not a missing afternoon's
+work, and what it would actually take to close each one.
 
 They are written down rather than half-built because a half-built version of
 any of them would break the property the SDK is organised around — that the
