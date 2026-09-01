@@ -40,7 +40,6 @@ simulate:                       ## the multi-action tree, one process per action
 
 test:
 	$(MOJO) tests/local_test.mojo
-	python tests/override_checks.py           # needs the flyte wheel, like simulate
 	$(MAKE) test-worker
 
 test-worker:                    ## the worker role and control protocol, no cluster needed

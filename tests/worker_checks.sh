@@ -110,8 +110,11 @@ check "a backoff rides with the retries"     "paced: \{'retries': RetryStrategy\
 echo "== config: a spec becomes a real Flyte task override =="
 out=$(python tests/override_checks.py 2>&1)
 printf '%s\n' "$out" | sed -n 's/^  \(PASS\|FAIL\) /  \1 /p'
+# Counted from the run, not hardcoded: this tally kept the suite's old size
+# through two rounds of new checks, so the total lied by that much.
+n=$(printf '%s\n' "$out" | grep -c "PASS ")
 if printf '%s' "$out" | grep -q "0 failed"; then
-  pass=$((pass + 18))
+  pass=$((pass + n))
 else
   fail=$((fail + 1)); echo "  FAIL override checks"; printf '%s\n' "$out"
 fi
