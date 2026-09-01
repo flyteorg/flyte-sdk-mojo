@@ -201,8 +201,11 @@ differentiate this SDK, and it is the version the reference repo was built for.
    words (including a ceiling with no floor, which is otherwise silently
    ignorable), `local_test.mojo` pinning the encoding of all of it, and
    `override_checks.py` pinning the decode, the way a call site's field layers
-   over the environment's, and every rejection — 35 checks, up from 18, and now
-   run by `make test`, which had never run them. The `design-notes.md` claim,
+   over the environment's, and every rejection — 35 checks, up from 18. Those
+   already reached `make test` through `test-worker`, which added a literal `18`
+   to its tally for a suite that had grown past it; the tally now counts what the
+   run reported, and `test:` does not run the file a second time. The
+   `design-notes.md` claim,
    the `Reuse` docstring and the README table now say what reuse is and does
    rather than implying it works.
 

@@ -38,6 +38,78 @@ cluster is compiled Mojo, in a binary that does not link Python at all — see
 Call one task from another and it becomes a child action; call a trace and it
 becomes a span — see [Multi-action workflows](#multi-action-workflows).
 
+## Install
+
+Mojo and the `flyte` wheel go in the **same** environment. The driver reaches
+the Flyte SDK through the interpreter your `mojo` was installed into, so a
+`flyte` sitting in a different venv is invisible to it.
+
+```sh
+git clone https://github.com/flyteorg/flyte-sdk-mojo && cd flyte-sdk-mojo
+uv venv
+uv pip install "mojo==1.0.0" flyte
+source .venv/bin/activate
+```
+
+`python -m venv` and `pip` do the same job. What matters is the activation:
+every `make` target calls a bare `python`.
+
+| What | Version | Why |
+|------|---------|-----|
+| Mojo | 1.0.0 | not only for the local build — the cross-compile happens in an image the SDK tags `flyte-mojo-builder:1.0.0`, so another local version means compiling a local run with one compiler and a cluster run with another |
+| Python | 3.10+ | the driver's interpreter, which is also `flyte`'s own floor |
+| `flyte` | 2.x | the control plane: bundle, launch, wait |
+| Docker | recent enough | **cluster runs only** — it builds the linux/amd64 task binary. A local run never calls it |
+
+### The install test, with no cluster
+
+With no `~/.flyte/config.yaml` in `$HOME` every program runs in-process, so an
+install can be checked without credentials, a daemon, or the network:
+
+```sh
+make local     # the examples in-process, each with HOME in a temp directory
+make test      # spec + wire checks, spec → TaskTemplate, worker protocol
+```
+
+Both need only the venv above, and neither touches the network.
+`tests/override_checks.py` and `tests/simulate.py` import `flyte` the way the
+pod does, so a missing or mismatched wheel fails here rather than in a
+container.
+
+### A cluster, when you want one
+
+One file decides whether a program is a driver: `~/.flyte/config.yaml`, and
+within it an endpoint. The Python SDK searches `./config.yaml`,
+`./.flyte/config.yaml` and `~/.union/config.yaml` among others; this SDK reads
+that one path and nothing else, which is the difference between "it runs
+locally" and "it should have been remote".
+
+```yaml
+admin:
+  endpoint: dns:///localhost:30080
+  insecure: true
+image:
+  builder: local
+task:
+  domain: development
+  project: flytesnacks
+```
+
+`flyte create config` writes it — there is no `flyte init` in the 2.x CLI:
+
+```sh
+flyte start devbox                                       # a cluster, in Docker
+flyte create config --devbox -o ~/.flyte/config.yaml     # writes the file above
+
+flyte create config --endpoint dns://<host> --project <p> --domain <d> \
+                    -o ~/.flyte/config.yaml              # a hosted deployment
+```
+
+`-o` names the file, and the command refuses to overwrite an existing one
+without `--force`. Code can skip the file: `init_from_config("dev.yaml")`
+reads a path you name, and `init_from_config(mode="local")` stops a cluster
+config from turning this process into a driver.
+
 ## How one file runs in three places
 
 A program written against this SDK plays one of three roles. It never
@@ -304,17 +376,7 @@ summarize inputs:
 
 That keeps upstream work — and upstream side effects — to exactly once per run.
 
-## Setup
-
-```sh
-uv venv
-uv pip install mojo==1.0.0 flyte
-source .venv/bin/activate
-```
-
-- Mojo 1.0.0, Python `flyte` SDK 2.x
-- For cluster runs: `~/.flyte/config.yaml` (as produced by `flyte init`) and
-  a running Docker daemon (to cross-compile the linux/amd64 task binary)
+## Import path
 
 Mojo resolves packages relative to the file being compiled, so a program in
 `examples/` needs the repo root on the import path. Run from the root with
@@ -325,7 +387,10 @@ mojo run -I . examples/hello.mojo
 ```
 
 Every `make` target already does this. A program sitting *beside* `flyte/`
-needs no flag at all.
+needs no flag at all, and that is the shape to copy into your own project:
+`flyte/` is the SDK and its parent is the build root, because a remote run
+compiles against the SDK and bundles both — see [Where the SDK
+lives](#where-the-sdk-lives).
 
 ## Examples
 
