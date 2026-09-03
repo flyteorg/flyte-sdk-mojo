@@ -1,0 +1,6 @@
+[submodule "gtm"]
+	path = gtm
+	url = https://github.com/unionai/gtm
+[submodule "presales"]
+	path = presales
+	url = https://github.com/unionai/presales

@@ -580,5 +580,7 @@ tests/
 docs/
   design-notes.md       # what the four remaining gaps would actually take
   reuse-gap-report.md   # container reuse: the launch half, and what the other needs
+gtm/                    # submodule: unionai/gtm — GTM content factory; routed via .agents/skills/gtm
+presales/               # submodule: unionai/presales — prospect briefs, demos, prototypes; routed via .agents/skills/presales
 _flyte_mojo/            # generated: builder Dockerfile + cached builds (gitignored)
 ```
